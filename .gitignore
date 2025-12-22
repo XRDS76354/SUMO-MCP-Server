@@ -151,14 +151,6 @@ Thumbs.db
 
 # --- SUMO-MCP Specific ---
 
-# Test output directories
-tests/output_*/
-tests/output_functional/
-tests/output_perf/
-tests/output_workflow/
-tests/output_security/
-tests/output_stability/
-
 # Local configuration overrides (optional)
 config_local.py
 secrets.py
@@ -166,3 +158,4 @@ secrets.py
 # Kiro specific
 kiro_test/
 .kiro/
+tests/
