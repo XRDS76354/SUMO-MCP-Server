@@ -46,7 +46,7 @@ P0-2,实现 Windows 标准安装路径自动检测,"**文件位置：** `src/uti
 2. Registry 读取必须有 try-except 包裹（避免 winreg 不可用）
 3. 验证 macOS 的 glob 模式正确（多版本共存场景）
 4. 确保函数返回值类型一致（`Optional[str]`）
-5. 添加日志输出便于调试（使用 `logging.debug`）",未开始,等待确认
+5. 添加日志输出便于调试（使用 `logging.debug`）",已完成,已完成
 P1-1,修复 Windows 跨驱动器路径导致配置不可移植,"**文件位置：** `src/workflows/signal_opt.py`（`signal_opt_workflow` 和 `_as_cfg_path` 函数）
 
 **当前问题：**
