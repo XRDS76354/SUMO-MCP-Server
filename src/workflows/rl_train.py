@@ -1,5 +1,4 @@
-import os
-from mcp_tools.rl import run_rl_training, list_rl_scenarios
+from mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
 
 def rl_train_workflow(
     scenario_name: str,
@@ -13,26 +12,17 @@ def rl_train_workflow(
     2. Run training
     3. Return summary
     """
-    import sumo_rl
-    base_path = os.path.dirname(sumo_rl.__file__)
-    scenario_path = os.path.join(base_path, 'nets', scenario_name)
-    
-    if not os.path.exists(scenario_path):
+    if not scenario_name:
+        return (
+            "Error: rl_train workflow requires scenario_name.\n"
+            "Hint: Use manage_rl_task(list_scenarios) to list built-in scenarios, "
+            "or use manage_rl_task(train_custom) for custom net/route files."
+        )
+
+    net_file, route_file, err = find_sumo_rl_scenario_files(scenario_name)
+    if err:
         available = list_rl_scenarios()
-        return f"Error: Scenario '{scenario_name}' not found. Available: {available}"
-    
-    # Find .net.xml and .rou.xml in the scenario folder
-    net_file = None
-    route_file = None
-    
-    for f in os.listdir(scenario_path):
-        if f.endswith(".net.xml"):
-            net_file = os.path.join(scenario_path, f)
-        elif f.endswith(".rou.xml"):
-            route_file = os.path.join(scenario_path, f)
-            
-    if not net_file or not route_file:
-        return f"Error: Could not find .net.xml or .rou.xml in {scenario_path}"
+        return f"{err}\nAvailable: {available}"
         
     return run_rl_training(
         net_file=net_file,

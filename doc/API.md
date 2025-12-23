@@ -143,10 +143,12 @@
         *   `list_scenarios`: 列出内置场景。
         *   `train_custom`: 运行自定义训练。
     *   `params` (object, optional):
-        *   `train_custom`: `{ "net_file", "route_file", "out_dir", "episodes", "steps", "algorithm", "reward_type" }`
+        *   `train_custom`: 支持两种入口（二选一）：
+            1) **内置场景**：`{ "scenario" 或 "scenario_name", "out_dir"/"output_dir", "episodes"/"num_episodes", "steps"/"steps_per_episode", "algorithm", "reward_type" }`
+            2) **自定义文件**：`{ "net_file", "route_file", "out_dir"/"output_dir", "episodes"/"num_episodes", "steps"/"steps_per_episode", "algorithm", "reward_type" }`
 
 **约束**：
-* `sumo-rl` 在 import 时强依赖 `SUMO_HOME`，因此建议显式设置 `SUMO_HOME`（并确保 `sumo` 可执行文件可用）。
+* `list_scenarios` 仅依赖 `sumo-rl` 包本身；**训练**在 import `sumo-rl` 时强依赖 `SUMO_HOME`，因此运行训练前需显式设置 `SUMO_HOME`（并确保 `sumo` 可执行文件可用）。
 * 自定义训练要求路网中存在信号灯（`tlLogic`），否则会返回 `No traffic lights found` 错误提示。
 * `algorithm` 当前仅实现 `ql`（Q-Learning）。
 

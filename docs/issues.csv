@@ -41,10 +41,10 @@ P1-3,RL: 统一参数入口并兼容 scenario/路径两种调用,"**背景：** 
 
 **影响范围：** `manage_rl_task` 与 `run_workflow(rl_train)` 的用户体验与兼容性","1. （单元测试/Mock）对 `src/server.py::manage_rl_task(train_custom)`：
    - 传入 `{ episodes: 3, steps: 100 }` 与 `{ num_episodes: 3, steps_per_episode: 100 }` 解析结果一致（可通过 patch `mcp_tools.rl.run_rl_training` 断言入参）
-   - 传入 `{ scenario: 'single-intersection' }` 会被映射到 `2way-single-intersection` 并定位到真实存在的 `.net.xml/.rou.xml` 路径（只验证路径解析，不要求启动 SUMO）
+   - 传入 `{ scenario: 'single-intersection' }` 可解析到 sumo-rl 的内置场景目录（优先 `single-intersection`，若不存在则 fallback `2way-single-intersection`），并定位到真实存在的 `.net.xml/.rou.xml` 路径（只验证路径解析，不要求启动 SUMO）
 2. （手动验证）在 Windows+SUMO 环境执行 MCP 调用：`manage_rl_task(train_custom, {scenario: '3x3grid', episodes: 1, steps: 100})` 能进入训练流程（不再出现参数级错误）","1. 参数兼容必须“显式、可预测”：同义字段冲突时要有确定优先级并在返回值中提示
 2. 别名映射应集中管理（避免散落多个 if）
-3. 文档更新必须与 `src/server.py` 对齐（避免再次出现“理念一致但实现不同”）",未开始,等待确认
+3. 文档更新必须与 `src/server.py` 对齐（避免再次出现“理念一致但实现不同”）",已完成,已完成
 P1-4,RL: SUMO 连接中断/解包异常的诊断与稳健性,"**背景：** 用户实测出现 `Connection closed by SUMO` 与 `not enough values to unpack`。在 TraCI 场景下，这类报错常见于 SUMO 启动参数错误、net/route 不匹配、或 SUMO 进程提前退出导致的协议读写异常。
 
 **修复内容：**

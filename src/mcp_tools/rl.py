@@ -1,5 +1,7 @@
 import os
-from typing import Any, List, Optional
+from importlib.util import find_spec
+from pathlib import Path
+from typing import Any, List, Optional, Tuple
 
 # NOTE:
 # `sumo_rl` will raise an ImportError at import-time if `SUMO_HOME` is not set.
@@ -18,22 +20,95 @@ def _get_sumo_environment_class() -> Any:
     return SumoEnvironment
 
 
+def _get_sumo_rl_nets_dir() -> Optional[Path]:
+    """Return the `sumo_rl/nets` directory without importing sumo-rl."""
+    spec = find_spec("sumo_rl")
+    if spec is None or spec.origin is None:
+        return None
+
+    package_dir = Path(spec.origin).resolve().parent
+    nets_dir = package_dir / "nets"
+    if nets_dir.is_dir():
+        return nets_dir
+    return None
+
+
+def _scenario_candidates(scenario_name: str) -> List[str]:
+    """Return scenario directory name candidates in priority order."""
+    raw = scenario_name.strip()
+    if not raw:
+        return []
+
+    candidates = [raw]
+
+    normalized = raw.replace("_", "-")
+    if normalized != raw:
+        candidates.append(normalized)
+
+    # Backward/variant naming compatibility.
+    if raw == "single-intersection":
+        candidates.append("2way-single-intersection")
+
+    # De-duplicate while preserving order.
+    seen = set()
+    uniq: List[str] = []
+    for c in candidates:
+        if c not in seen:
+            uniq.append(c)
+            seen.add(c)
+    return uniq
+
+
 def list_rl_scenarios() -> List[str]:
     """
     List available built-in RL scenarios from sumo-rl package.
     These are typically folders in sumo_rl/nets.
     """
+    nets_dir = _get_sumo_rl_nets_dir()
+    if nets_dir is None:
+        return ["Error: sumo-rl is not installed or nets directory not found"]
+
     try:
-        import sumo_rl
-        base_path = os.path.dirname(sumo_rl.__file__)
-        nets_path = os.path.join(base_path, 'nets')
-        if not os.path.exists(nets_path):
-            return ["Error: sumo-rl nets directory not found"]
-        
-        scenarios = [d for d in os.listdir(nets_path) if os.path.isdir(os.path.join(nets_path, d))]
+        scenarios = [p.name for p in nets_dir.iterdir() if p.is_dir()]
         return sorted(scenarios)
     except Exception as e:
-        return [f"Error listing scenarios: {str(e)}"]
+        return [f"Error listing scenarios: {e}"]
+
+
+def find_sumo_rl_scenario_files(scenario_name: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Resolve a sumo-rl built-in scenario directory to its `.net.xml` and `.rou.xml` files.
+
+    Returns:
+        (net_file, route_file, error) where error is None on success.
+    """
+    nets_dir = _get_sumo_rl_nets_dir()
+    if nets_dir is None:
+        return None, None, "Error: sumo-rl is not installed or nets directory not found"
+
+    candidates = _scenario_candidates(scenario_name)
+    if not candidates:
+        return None, None, "Error: scenario_name is required"
+
+    for candidate in candidates:
+        scenario_dir = nets_dir / candidate
+        if not scenario_dir.is_dir():
+            continue
+
+        net_files = sorted(scenario_dir.glob("*.net.xml"))
+        route_files = sorted(scenario_dir.glob("*.rou.xml"))
+
+        if not net_files or not route_files:
+            return None, None, f"Error: Could not find .net.xml or .rou.xml in {scenario_dir}"
+
+        return str(net_files[0]), str(route_files[0]), None
+
+    available = [p.name for p in nets_dir.iterdir() if p.is_dir()]
+    return (
+        None,
+        None,
+        f"Error: Scenario '{scenario_name}' not found. Available: {sorted(available)}",
+    )
 
 
 def create_rl_environment(

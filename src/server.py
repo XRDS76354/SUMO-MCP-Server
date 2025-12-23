@@ -14,7 +14,7 @@ from mcp_tools.vehicle import (
     get_vehicle_acceleration, get_vehicle_lane, get_vehicle_route,
     get_simulation_info
 )
-from mcp_tools.rl import list_rl_scenarios, run_rl_training
+from mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
 from utils.connection import connection_manager
 from utils.sumo import find_sumo_binary, find_sumo_home, find_sumo_tools_dir
 from workflows.sim_gen import sim_gen_workflow
@@ -224,14 +224,52 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> str:
         return str(list_rl_scenarios())
         
     elif action == "train_custom":
+        scenario_name = params.get("scenario") or params.get("scenario_name")
+        net_file = params.get("net_file")
+        route_file = params.get("route_file")
+
+        if scenario_name:
+            net_file, route_file, err = find_sumo_rl_scenario_files(str(scenario_name))
+            if err:
+                return err
+
+        if not net_file or not route_file:
+            return (
+                "Error: train_custom requires either:\n"
+                "  - scenario/scenario_name (built-in sumo-rl scenario), OR\n"
+                "  - net_file + route_file (custom files)\n"
+                "Hint: Use manage_rl_task(list_scenarios) to see available built-in scenarios."
+            )
+
+        out_dir = params.get("out_dir") or params.get("output_dir") or "output"
+
+        episodes_raw = params.get("episodes", params.get("num_episodes", 1))
+        steps_raw = params.get("steps", params.get("steps_per_episode", 1000))
+        try:
+            episodes = int(episodes_raw)
+        except (TypeError, ValueError):
+            return f"Error: episodes must be an integer, got {episodes_raw!r}"
+        try:
+            steps_per_episode = int(steps_raw)
+        except (TypeError, ValueError):
+            return f"Error: steps must be an integer, got {steps_raw!r}"
+
+        if episodes <= 0:
+            return "Error: episodes must be > 0"
+        if steps_per_episode <= 0:
+            return "Error: steps must be > 0"
+
+        algorithm = str(params.get("algorithm", "ql"))
+        reward_type = str(params.get("reward_type", "diff-waiting-time"))
+
         return run_rl_training(
-            params.get("net_file", ""),
-            params.get("route_file", ""),
-            params.get("out_dir", "output"),
-            params.get("episodes", 1),
-            params.get("steps", 1000),
-            params.get("algorithm", "ql"),
-            params.get("reward_type", "diff-waiting-time")
+            net_file=str(net_file),
+            route_file=str(route_file),
+            out_dir=str(out_dir),
+            episodes=episodes,
+            steps_per_episode=steps_per_episode,
+            algorithm=algorithm,
+            reward_type=reward_type,
         )
         
     return f"Unknown action: {action}"
