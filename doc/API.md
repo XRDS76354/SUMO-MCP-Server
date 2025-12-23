@@ -1,4 +1,27 @@
-# SUMO-MCP API 参考 (Unified Toolset)
+# SUMO-MCP API 参考 (FastMCP Tools)
+
+本文件是对 `src/server.py` 中 `@server.tool` 注册工具的文档镜像，用于给 MCP 宿主/LLM 提供稳定的调用契约。
+
+**唯一真相源**：`src/server.py`（如本文与实现不一致，以代码为准）。
+
+## 通用约定
+
+### 返回值
+所有工具均返回 `string`（成功信息/结果摘要，或以 `Error:` 开头的错误信息）。
+
+### `params.options`
+部分工具支持在 `params` 中传入 `options`（`list[str]`），这些参数会**按 token 原样追加**到底层 SUMO 二进制/脚本命令中。
+
+示例：
+```json
+{
+  "options": ["--tls.guess", "true", "--default.lanenumber", "2"]
+}
+```
+
+### SUMO 工具脚本依赖
+封装 SUMO Python 工具脚本的能力（如 `osmGet.py` / `randomTrips.py` / `tls*.py`）需要能定位到 `<SUMO_HOME>/tools`。
+项目会尝试自动推导 `SUMO_HOME`，但为保证确定性，仍推荐显式设置环境变量 `SUMO_HOME`。
 
 为了提供更简洁、符合人类直觉的接口，我们将原有的 20+ 个工具合并为 7 个核心工具。每个工具通过 `action` 或 `method` 参数区分具体操作。
 
@@ -10,13 +33,14 @@
 *   **参数**:
     *   `action` (string): 操作类型，可选值：
         *   `generate`: 生成抽象路网（Grid/Spider）。
-        *   `convert` (或 `convert_osm`): 将 OSM/OpenDrive 等格式转换为 SUMO 路网。
+        *   `convert` (或 `convert_osm`): 将 OSM 文件转换为 SUMO 路网。
         *   `download_osm`: 从 OpenStreetMap 下载地图数据。
     *   `output_file` (string): 输出文件路径（对于 download_osm 为输出目录）。
     *   `params` (object, optional): 具体操作参数：
         *   `generate`: `{ "grid": bool, "grid_number": int }`
         *   `convert` / `convert_osm`: `{ "osm_file": string }`
         *   `download_osm`: `{ "bbox": "w,s,e,n", "prefix": string }`
+        *   `options`: `list[string]`，追加到底层命令的额外参数（见“通用约定”）
 
 ## 2. 需求管理 (manage_demand)
 
@@ -33,7 +57,8 @@
     *   `params` (object, optional): 具体操作参数：
         *   `generate_random` / `random_trips`: `{ "end_time": int, "period": float }`
         *   `convert_od` / `od_matrix`: `{ "od_file": string }`
-        *   `compute_routes` / `routing`: `{ "route_files": string }` (输入行程文件)
+        *   `compute_routes` / `routing`: `{ "route_files": string }` (输入 trips 文件路径)
+        *   `options`: `list[string]`，追加到底层命令的额外参数（见“通用约定”）
 
 ## 3. 仿真控制 (control_simulation)
 
@@ -46,7 +71,7 @@
         *   `step`: 向前推演仿真时间。
         *   `disconnect`: 断开连接并停止仿真。
     *   `params` (object, optional): 具体操作参数：
-        *   `connect`: `{ "config_file": string, "gui": bool, "port": int }`
+        *   `connect`: `{ "config_file": string, "gui": bool, "port": int, "host": string }`
         *   `step`: `{ "step": float }` (默认为 0，表示一步)
 
 ## 4. 状态查询 (query_simulation_state)
@@ -75,6 +100,13 @@
     *   `net_file` (string): 路网文件。
     *   `route_file` (string): 路由文件。
     *   `output_file` (string): 输出文件路径。
+    *   `params` (object, optional):
+        *   `options`: `list[string]`，追加到底层命令的额外参数（主要用于 `coordination`；见“通用约定”）
+
+**输出文件类型说明**：
+* `cycle_adaptation`：SUMO `<additional>` 文件（包含 `<tlLogic>` 信号方案），应在 `.sumocfg` 中以 `<additional-files>` 引用，而不是作为 `<net-file>`。
+* `coordination`：默认同样输出 `<additional>` 文件（TLS offsets），也应通过 `<additional-files>` 引用。
+如需端到端“基线 vs 优化”对比，推荐直接使用 `run_workflow` 的 `signal_opt`，会自动处理输出文件类型并生成可运行配置。
 
 ## 6. 自动化工作流 (run_workflow)
 
@@ -88,8 +120,8 @@
         *   `rl_train`: 强化学习训练流程。
     *   `params` (object): 工作流参数字典。
         *   `sim_gen_eval`: `{ "output_dir", "grid_number", "steps" }`
-        *   `signal_opt`: `{ "net_file", "route_file", "output_dir", ... }`
-        *   `rl_train`: `{ "scenario_name", "output_dir", "episodes" }`
+        *   `signal_opt`: `{ "net_file", "route_file", "output_dir", "steps", "use_coordinator" }`
+        *   `rl_train`: `{ "scenario_name", "output_dir", "episodes", "steps" }`
 
 ## 7. 强化学习任务 (manage_rl_task)
 
@@ -101,7 +133,12 @@
         *   `list_scenarios`: 列出内置场景。
         *   `train_custom`: 运行自定义训练。
     *   `params` (object, optional):
-        *   `train_custom`: `{ "net_file", "route_file", "algorithm", ... }`
+        *   `train_custom`: `{ "net_file", "route_file", "out_dir", "episodes", "steps", "algorithm", "reward_type" }`
+
+**约束**：
+* `sumo-rl` 在 import 时强依赖 `SUMO_HOME`，因此建议显式设置 `SUMO_HOME`（并确保 `sumo` 可执行文件可用）。
+* 自定义训练要求路网中存在信号灯（`tlLogic`），否则会返回 `No traffic lights found` 错误提示。
+* `algorithm` 当前仅实现 `ql`（Q-Learning）。
 
 ---
 
@@ -109,5 +146,5 @@
 
 为了兼容性保留的独立工具：
 *   `get_sumo_info`: 获取 SUMO 版本信息。
-*   `run_simple_simulation`: 运行简单的配置文件仿真（离线）。
-*   `run_analysis`: 解析 FCD 输出文件。
+*   `run_simple_simulation`: 运行简单的配置文件仿真（离线）。参数：`config_path`，`steps`（默认 100）。
+*   `run_analysis`: 解析 FCD 输出文件。参数：`fcd_file`。

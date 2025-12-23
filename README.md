@@ -15,6 +15,8 @@ SUMO-MCP 是一个连接大语言模型 (LLM) 与 [Eclipse SUMO](https://www.ecl
 
 系统支持**离线仿真**（基于文件的工作流）和**在线交互**（实时 TraCI 控制）两种模式，满足从宏观规划到微观控制的多样化需求。
 
+API 参考见 `doc/API.md`（唯一真相源以 `src/server.py` 的工具注册为准）。
+
 ## 🚀 核心功能特性
 
 ### 1. 全面的工具链集成
@@ -22,8 +24,10 @@ SUMO-MCP 是一个连接大语言模型 (LLM) 与 [Eclipse SUMO](https://www.ecl
 
 *   **路网管理 (`manage_network`)**: 支持路网生成 (`generate`)、OSM 地图下载 (`download_osm`) 与格式转换 (`convert`)。
 *   **需求管理 (`manage_demand`)**: 提供随机行程生成 (`generate_random`)、OD 矩阵转换 (`convert_od`) 和路径计算 (`compute_routes`)。
-*   **信号优化 (`optimize_traffic_signals`)**: 集成周期自适应 (`cycle_adaptation`) 和绿波协调 (`coordination`) 算法。
+*   **信号优化 (`optimize_traffic_signals`)**: 集成周期自适应 (`cycle_adaptation`) 和绿波协调 (`coordination`) 算法；其中 `cycle_adaptation` 输出为 SUMO `<additional>` 信号方案文件（由工作流自动挂载到 `<additional-files>`）。
 *   **仿真与分析**: 支持标准配置文件仿真 (`run_simple_simulation`) 与 FCD 轨迹数据分析 (`run_analysis`)。
+
+部分聚合工具支持在 `params` 中传入 `options: list[str]`，用于将额外参数按 token 透传到底层 SUMO 二进制/脚本（详见 `doc/API.md` 的“通用约定”）。
 
 ### 2. 在线实时交互 (Online Interaction)
 支持通过 TraCI 协议与运行中的仿真实例进行实时交互，赋予 LLM 微观控制与感知能力：
@@ -35,8 +39,8 @@ SUMO-MCP 是一个连接大语言模型 (LLM) 与 [Eclipse SUMO](https://www.ecl
 内置端到端的自动化工作流 (`run_workflow`)，简化复杂科研与工程任务：
 
 *   **Sim Gen & Eval (`sim_gen_eval`)**: 一键执行 "生成路网 -> 生成需求 -> 路径计算 -> 仿真运行 -> 结果分析" 的完整闭环。
-*   **Signal Optimization (`signal_opt`)**: 自动执行 "基线仿真 -> 信号优化 -> 优化仿真 -> 效果对比" 的全流程。
-*   **RL Training (`rl_train`)**: 针对内置场景或通过 `manage_rl_task` 执行自定义路网的强化学习训练。
+*   **Signal Optimization (`signal_opt`)**: 自动执行 "基线仿真 -> 信号优化 -> 优化仿真 -> 效果对比" 的全流程，并自动处理优化工具输出的 `<additional>` 文件挂载。
+*   **RL Training (`rl_train`)**: 针对内置场景的强化学习训练；自定义路网训练使用 `manage_rl_task/train_custom`（要求路网包含信号灯，且 `sumo-rl` 运行建议显式设置 `SUMO_HOME`）。
 
 ---
 
@@ -158,6 +162,8 @@ start_server.bat
 
 服务器基于官方 `mcp.server.fastmcp.FastMCP`，通过标准输入输出 (stdio) 传输 JSON-RPC 2.0 消息，您可以将其配置到任何支持 MCP 的宿主应用中。
 
+工具清单与参数约定请以 `src/server.py` / `doc/API.md` 为准。
+
 **Claude Desktop 配置示例**:
 
 ```json
@@ -206,6 +212,11 @@ start_server.bat
 
 ```text
 sumo-mcp/
+├── doc/
+│   ├── API.md             # MCP 工具 API 参考（与 src/server.py 对齐）
+│   └── sumo-mcp.jpg       # 项目图片
+├── docs/                  # 开发/审查过程文档（可选阅读）
+├── examples/              # 示例脚本（会忽略生成的输出文件）
 ├── src/
 │   ├── server.py           # MCP 服务器入口 (FastMCP 实现，聚合接口)
 │   ├── utils/              # 通用工具
