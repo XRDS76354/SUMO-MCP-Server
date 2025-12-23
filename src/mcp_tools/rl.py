@@ -75,64 +75,118 @@ def run_rl_training(
     This runs synchronously and returns the result.
     """
     try:
+        if not os.path.exists(net_file):
+            return f"Error: Network file not found at {net_file}"
+        if not os.path.exists(route_file):
+            return f"Error: Route file not found at {route_file}"
+
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
             
         env_class = _get_sumo_environment_class()
-        env = env_class(
-            net_file=net_file,
-            route_file=route_file,
-            out_csv_name=os.path.join(out_dir, "train_results"),
-            use_gui=False,
-            num_seconds=steps_per_episode,
-            reward_fn=reward_type
-        )
-        
-        # Simple Q-Learning implementation for demonstration
-        # In a real scenario, this would be more complex or use Stable Baselines3
-        if algorithm == "ql":
+        env = None
+        try:
+            env = env_class(
+                net_file=net_file,
+                route_file=route_file,
+                out_csv_name=os.path.join(out_dir, "train_results"),
+                use_gui=False,
+                num_seconds=steps_per_episode,
+                reward_fn=reward_type,
+                single_agent=False,
+            )
+
+            if not getattr(env, "ts_ids", None):
+                return (
+                    "Training failed: No traffic lights found in the provided network.\n"
+                    "Hint: RL training requires a network with traffic lights (tlLogic).\n"
+                    "If you generated/converted the network yourself, try enabling TLS guessing "
+                    "(e.g. netgenerate/netconvert with `--tls.guess true`)."
+                )
+
+            if algorithm != "ql":
+                return f"Algorithm {algorithm} not yet implemented in this tool wrapper."
+
+            # Simple Q-Learning implementation for demonstration.
+            # In a real scenario, this would be more complex or use Stable Baselines3.
             from sumo_rl.agents import QLAgent
-            
-            initial_states, _ = env.reset()
-            agents = {
-                ts: QLAgent(
-                    starting_state=env.encode(initial_states[ts], ts),
-                    state_space=env.observation_space,
-                    action_space=env.action_space,
-                    alpha=0.1,
-                    gamma=0.99,
-                    exploration_strategy='EpsilonGreedy'
-                ) for ts in env.ts_ids
-            }
-            
-            info_log = []
-            
+
+            agents: dict[str, QLAgent] = {}
+            info_log: list[str] = []
+
             for ep in range(1, episodes + 1):
-                obs, _ = env.reset()
-                done = {agent_id: False for agent_id in env.ts_ids}
-                total_reward = 0
-                
-                while not all(done.values()):
-                    actions = {ts: agents[ts].act() for ts in env.ts_ids}
-                    next_obs, rewards, done, truncated, _ = env.step(actions)
-                    
-                    for ts in env.ts_ids:
-                        agents[ts].learn(
-                            next_state=env.encode(next_obs[ts], ts),
-                            reward=rewards[ts]
+                obs = env.reset()
+                if not isinstance(obs, dict):
+                    return (
+                        "Training failed: Unexpected observation type from sumo-rl reset(). "
+                        f"Expected dict, got {type(obs).__name__}."
+                    )
+
+                # Align agent state to the new episode start.
+                for ts_id, ts_obs in obs.items():
+                    state = env.encode(ts_obs, ts_id)
+                    if ts_id not in agents:
+                        action_space = env.action_spaces(ts_id)
+                        agents[ts_id] = QLAgent(
+                            starting_state=state,
+                            state_space=env.observation_spaces(ts_id),
+                            action_space=action_space,
+                            alpha=0.1,
+                            gamma=0.99,
                         )
-                        total_reward += rewards[ts]
-                        
+                    else:
+                        agent = agents[ts_id]
+                        if state not in agent.q_table:
+                            agent.q_table[state] = [0 for _ in range(agent.action_space.n)]
+                        agent.state = state
+                        agent.action = None
+                        agent.acc_reward = 0
+
+                ep_total_reward = 0.0
+                dones: dict[str, bool] = {"__all__": False}
+
+                while not dones.get("__all__", False):
+                    # sumo-rl returns observations/rewards only for agents that are ready to act.
+                    actions = {ts_id: agents[ts_id].act() for ts_id in obs.keys() if ts_id in agents}
+
+                    step_result = env.step(actions)
+                    if not (isinstance(step_result, tuple) and len(step_result) == 4):
+                        return (
+                            "Training failed: Unexpected return value from sumo-rl step(). "
+                            "Expected (obs, rewards, dones, info)."
+                        )
+                    next_obs, rewards, dones, _info = step_result
+
+                    if not isinstance(next_obs, dict) or not isinstance(rewards, dict) or not isinstance(dones, dict):
+                        return "Training failed: Unexpected types returned from sumo-rl step()."
+
+                    for ts_id, reward in rewards.items():
+                        if ts_id not in agents:
+                            continue
+                        if ts_id not in next_obs:
+                            continue
+                        agents[ts_id].learn(
+                            next_state=env.encode(next_obs[ts_id], ts_id),
+                            reward=reward,
+                            done=dones.get(ts_id, False),
+                        )
+                        ep_total_reward += float(reward)
+
                     obs = next_obs
-                
-                env.save_csv(out_dir, ep)
-                info_log.append(f"Episode {ep}/{episodes}: Total Reward = {total_reward}")
-                env.close()
-                
+
+                info_log.append(f"Episode {ep}/{episodes}: Total Reward = {ep_total_reward:.2f}")
+
+            # sumo-rl only auto-saves metrics for the previous episode on reset().
+            # Save the last episode explicitly.
+            env.save_csv(env.out_csv_name, env.episode)
+
             return "\n".join(info_log)
-        
-        else:
-            return f"Algorithm {algorithm} not yet implemented in this tool wrapper."
+        finally:
+            if env is not None:
+                try:
+                    env.close()
+                except Exception:
+                    pass
             
     except Exception as e:
         return f"Training failed: {str(e)}"
