@@ -78,7 +78,7 @@ P3-2,路网生成: Spider 参数映射无效（生成结果仍为 Grid）,"**现
 2. （手动验证）实际运行生成：输出 net 文件头部包含 spider 网络标识（不再是 `<grid_network>`）
 3. （回归）`grid=true` 逻辑保持不变","1. 参数互斥逻辑必须清晰（避免 grid/spider 同时生效）
 2. spider 参数需有合理默认值与类型校验（如 arms 为正整数）
-3. 命令行参数名需与 SUMO `netgenerate --help` 对齐（避免拼错导致 silent fallback）",进行中,进行中
+3. 命令行参数名需与 SUMO `netgenerate --help` 对齐（避免拼错导致 silent fallback）",已完成,已完成
 P0-1,修复 pyproject.toml 打包配置,"**文件位置：** `pyproject.toml`
 
 **当前问题：**

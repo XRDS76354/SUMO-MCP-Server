@@ -47,10 +47,13 @@
         *   `download_osm`: 从 OpenStreetMap 下载地图数据。
     *   `output_file` (string): 输出文件路径（对于 download_osm 为输出目录）。
     *   `params` (object, optional): 具体操作参数：
-        *   `generate`: `{ "grid": bool, "grid_number": int }`
+        *   `generate`: `{ "grid": bool, "grid_number": int, "spider": bool }`
         *   `convert` / `convert_osm`: `{ "osm_file": string }`
         *   `download_osm`: `{ "bbox": "w,s,e,n", "prefix": string }`
         *   `options`: `list[string]`，追加到底层命令的额外参数（见“通用约定”）
+
+**说明**：
+* `generate` 时 `spider=true` 会覆盖 `grid/grid_number`（强制生成 Spider 网络）；如需更多 Spider 参数请通过 `params.options` 透传 `netgenerate` 命令行选项。
 
 ## 2. 需求管理 (manage_demand)
 

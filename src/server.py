@@ -41,8 +41,18 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
     options = params.get("options")
     
     if action == "generate":
-        grid = params.get("grid", True)
+        spider = bool(params.get("spider", False))
+        grid = bool(params.get("grid", True))
         grid_number = params.get("grid_number", 3)
+
+        if spider:
+            # Spider network takes precedence over grid settings.
+            grid = False
+            options_list = list(options or [])
+            if "--spider" not in options_list:
+                options_list.insert(0, "--spider")
+            options = options_list
+
         return netgenerate(output_file, grid, grid_number, options)
         
     elif action == "convert" or action == "convert_osm":
