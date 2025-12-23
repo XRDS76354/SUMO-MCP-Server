@@ -188,7 +188,11 @@ secrets.py
 # Kiro specific
 kiro_test/
 .kiro/
-tests/
+
+# Test output directories (generated artifacts, not source)
+tests/output_*/
+tests/test_outputs/
+tests/__pycache__/
 
 # Local SUMO distribution copy (too large for git)
 sumo/
