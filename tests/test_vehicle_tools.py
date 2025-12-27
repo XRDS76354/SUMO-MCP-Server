@@ -1,10 +1,5 @@
-import os
-import sys
 import pytest
 from unittest.mock import MagicMock, patch
-
-# Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from utils.connection import SUMOConnection
 from mcp_tools.vehicle import get_vehicles, get_vehicle_speed

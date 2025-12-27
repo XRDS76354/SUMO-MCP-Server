@@ -1,10 +1,5 @@
-import sys
-import os
 import unittest
 from unittest.mock import MagicMock, patch
-
-# Add src to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from server import manage_network, manage_demand, optimize_traffic_signals, run_workflow, query_simulation_state
 

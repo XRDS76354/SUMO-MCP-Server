@@ -1,9 +1,6 @@
 import pytest
 import os
-import sys
 import shutil
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from mcp_tools.simulation import run_simple_simulation
 
@@ -18,8 +15,8 @@ pytestmark = pytest.mark.skipif(
 # Real stability test would run for hours
 def test_stability_loop(tmp_path):
     # Use existing fixture files if possible, or generate small one
-    from src.mcp_tools.network import netgenerate
-    from src.mcp_tools.route import random_trips, duarouter
+    from mcp_tools.network import netgenerate
+    from mcp_tools.route import random_trips, duarouter
     
     work_dir = str(tmp_path)
     net_file = os.path.join(work_dir, "grid.net.xml")

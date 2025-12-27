@@ -1,9 +1,6 @@
 import os
-import sys
 import shutil
 import pytest
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from mcp_tools.network import netgenerate
 from mcp_tools.route import random_trips, duarouter

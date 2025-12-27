@@ -12,8 +12,6 @@ pytestmark = pytest.mark.skipif(
     reason="Requires SUMO installed (set SUMO_HOME or add `sumo` to PATH).",
 )
 
-# Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 def test_signal_opt_workflow():
     # Setup paths

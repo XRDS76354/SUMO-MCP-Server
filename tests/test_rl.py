@@ -1,11 +1,7 @@
 import os
 import shutil
 import pytest
-import sys
 from unittest.mock import MagicMock, patch
-
-# Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from mcp_tools.rl import list_rl_scenarios, run_rl_training
 from workflows.rl_train import rl_train_workflow
@@ -19,7 +15,7 @@ class TestRLTools:
         # So we just check type
         
     @patch("mcp_tools.rl.SumoEnvironment")
-    def test_run_training(self, mock_env):
+    def test_run_training(self, mock_env, tmp_path):
         # Mock environment
         env_instance = MagicMock()
         mock_env.return_value = env_instance
@@ -31,8 +27,8 @@ class TestRLTools:
         # rewards is a dict {ts_id: reward}
         # In multi-agent env, step returns dicts for all agents
         # done/term/trunc are dicts {agent_id: bool} or a global bool depending on env
-        # sumo-rl returns dicts for all return values
-        env_instance.step.return_value = ({"t1": [0,0]}, {"t1": 1}, {"t1": True}, {"t1": False}, {})
+        # sumo-rl (single_agent=False) returns a 4-tuple: (obs_dict, rewards_dict, dones_dict, info)
+        env_instance.step.return_value = ({"t1": [0,0]}, {"t1": 1}, {"t1": True, "__all__": True}, {})
         env_instance.encode.return_value = "state"
         
         # Mock QLAgent
@@ -41,11 +37,16 @@ class TestRLTools:
             with patch("sumo_rl.agents.QLAgent") as mock_agent:
                 agent_instance = MagicMock()
                 mock_agent.return_value = agent_instance
+
+                net_file = tmp_path / "dummy.net.xml"
+                route_file = tmp_path / "dummy.rou.xml"
+                net_file.write_text("<net/>", encoding="utf-8")
+                route_file.write_text("<routes/>", encoding="utf-8")
                 
                 res = run_rl_training(
-                    net_file="dummy.net.xml",
-                    route_file="dummy.rou.xml",
-                    out_dir="test_out",
+                    net_file=str(net_file),
+                    route_file=str(route_file),
+                    out_dir=str(tmp_path / "test_out"),
                     episodes=1,
                     steps_per_episode=10
                 )

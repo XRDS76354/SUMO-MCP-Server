@@ -1,11 +1,5 @@
-import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
-
-
-# Add src to path so imports work without installation
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from mcp_tools.network import osm_get
 from mcp_tools.route import random_trips

@@ -329,4 +329,20 @@ def run_analysis(fcd_file: str) -> str:
     return analyze_fcd(fcd_file)
 
 if __name__ == "__main__":
-    server.run(transport="stdio")
+    # NOTE:
+    # MCP stdio transport relies on AnyIO/asyncio to process thread callbacks.
+    # In some environments, a lack of scheduled timers can cause the event loop to
+    # block indefinitely while waiting for stdio worker-thread results. A small
+    # periodic sleep keeps the loop responsive without emitting any stdout output.
+    import anyio
+
+    async def _wakeup_task() -> None:
+        while True:
+            await anyio.sleep(0.1)
+
+    async def _run_stdio_with_wakeup() -> None:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_wakeup_task)
+            await server.run_stdio_async()
+
+    anyio.run(_run_stdio_with_wakeup)

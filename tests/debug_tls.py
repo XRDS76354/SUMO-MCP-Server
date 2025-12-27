@@ -1,8 +1,5 @@
 import os
-import sys
 import subprocess
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from mcp_tools.signal import tls_cycle_adaptation
 

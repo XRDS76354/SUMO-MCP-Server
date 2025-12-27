@@ -1,8 +1,4 @@
-import os
 import subprocess
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def test_run_simple_simulation_redirects_sumo_stdout(monkeypatch, tmp_path) -> None:

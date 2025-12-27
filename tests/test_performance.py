@@ -13,9 +13,6 @@ pytestmark = pytest.mark.skipif(
     reason="Requires SUMO installed (set SUMO_HOME or add `sumo` to PATH).",
 )
 
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-
 from workflows.sim_gen import sim_gen_workflow
 
 @pytest.fixture
