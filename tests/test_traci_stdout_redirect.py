@@ -21,6 +21,7 @@ def test_run_simple_simulation_redirects_sumo_stdout(monkeypatch, tmp_path) -> N
     result = simulation_module.run_simple_simulation(str(config_path), steps=1)
     assert captured["stdout"] is subprocess.DEVNULL
     assert "Simulation error" in result
+    assert "RuntimeError" in result
 
 
 def test_connection_manager_redirects_sumo_stdout(monkeypatch) -> None:

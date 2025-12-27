@@ -1,8 +1,11 @@
 import os
+import logging
 import subprocess
 import traci
 
 from utils.sumo import build_sumo_diagnostics, find_sumo_binary
+
+logger = logging.getLogger(__name__)
 
 def run_simple_simulation(config_path: str, steps: int = 100) -> str:
     """
@@ -57,6 +60,14 @@ def run_simple_simulation(config_path: str, steps: int = 100) -> str:
     except Exception as e:
         try:
             traci.close()
-        except:
-            pass
-        return f"Simulation error: {str(e)}"
+        except Exception as close_exc:
+            logger.debug("traci.close failed: %s", close_exc)
+        return "\n".join(
+            [
+                f"Simulation error: {type(e).__name__}: {e}",
+                f"- config_path: {config_path}",
+                f"- steps: {steps}",
+                f"- sumo_binary: {sumo_binary}",
+                f"- SUMO_HOME: {os.environ.get('SUMO_HOME', 'Not Set')}",
+            ]
+        )

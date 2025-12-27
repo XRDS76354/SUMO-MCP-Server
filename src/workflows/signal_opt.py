@@ -1,12 +1,15 @@
 import os
 import shutil
 import warnings
+import logging
 from filecmp import cmp
 from typing import List, Optional
 
 from mcp_tools.simulation import run_simple_simulation
 from mcp_tools.signal import tls_cycle_adaptation, tls_coordinator
 from mcp_tools.analysis import analyze_fcd
+
+logger = logging.getLogger(__name__)
 
 
 def _copy_to_dir(src_file: str, dst_dir: str) -> str:
@@ -117,7 +120,8 @@ def _is_additional_file(file_path: str) -> bool:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             head = f.read(1000)
         return '<additional' in head
-    except:
+    except Exception as e:
+        logger.debug("Failed to inspect additional file %s: %s", file_path, e)
         return False
 
 
