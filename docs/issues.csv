@@ -519,10 +519,10 @@ P3-3,路网生成(Spider): 实现 spider 专属参数映射,"**背景：** `P3-2
 2. 将 spider 参数（如 `arms`）映射到 `netgenerate` 的对应 CLI（与 `netgenerate --help` 对齐）。
 3. 进行类型校验（例如 arms 必须为正整数）。
 
-**影响范围：** Spider 网络生成可用性","1. 单测 mock `subprocess.run`，断言 spider 参数会出现在命令行（至少包含 `--spider` 与 `--spider.arms <n>`）
+**影响范围：** Spider 网络生成可用性","1. 单测 mock `subprocess.run`，断言 spider 参数会出现在命令行（至少包含 `--spider` 与 `--spider.arm-number <n>`）
 2. 参数非法时返回可读错误
 3. `pytest -q` 通过","1. 参数名必须与 SUMO CLI 对齐
-2. 不破坏现有 grid 默认行为",未开始,等待确认
+2. 不破坏现有 grid 默认行为",已完成,已完成
 P3-4,路网生成(Spider): 补齐验收单测（spider 不含 grid）,"**背景：** `P3-2/P3-3` 需要验收级单测，避免后续回归再出现“silent fallback 到 grid”。
 
 **修复内容：**

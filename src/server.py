@@ -53,8 +53,76 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
             # Spider network takes precedence over grid settings.
             grid = False
             options_list = list(options or [])
+
+            def _strip_flag(flag: str, has_value: bool = False) -> None:
+                while flag in options_list:
+                    idx = options_list.index(flag)
+                    options_list.pop(idx)
+                    if has_value and idx < len(options_list):
+                        options_list.pop(idx)
+
+            def _set_option(flag: str, value: str) -> None:
+                if flag in options_list:
+                    idx = options_list.index(flag)
+                    if idx + 1 < len(options_list):
+                        options_list[idx + 1] = value
+                    else:
+                        options_list.append(value)
+                else:
+                    options_list.extend([flag, value])
+
+            # Enforce Spider/Grid mutual exclusion even when the user provided `options`.
+            _strip_flag("--grid")
+            _strip_flag("--grid.number", has_value=True)
+
             if "--spider" not in options_list:
                 options_list.insert(0, "--spider")
+
+            arms_raw = params.get("arms", params.get("arm_number"))
+            if arms_raw is not None:
+                try:
+                    arms = int(arms_raw)
+                except (TypeError, ValueError):
+                    return f"Error: arms must be a positive integer, got {arms_raw!r}"
+                if arms <= 0:
+                    return "Error: arms must be > 0"
+                _set_option("--spider.arm-number", str(arms))
+
+            circles_raw = params.get("circles", params.get("circle_number"))
+            if circles_raw is not None:
+                try:
+                    circles = int(circles_raw)
+                except (TypeError, ValueError):
+                    return f"Error: circles must be a positive integer, got {circles_raw!r}"
+                if circles <= 0:
+                    return "Error: circles must be > 0"
+                _set_option("--spider.circle-number", str(circles))
+
+            space_radius_raw = params.get("ring_radius", params.get("space_radius"))
+            if space_radius_raw is not None:
+                try:
+                    space_radius = float(space_radius_raw)
+                except (TypeError, ValueError):
+                    return f"Error: ring_radius must be a number, got {space_radius_raw!r}"
+                if space_radius <= 0:
+                    return "Error: ring_radius must be > 0"
+                _set_option("--spider.space-radius", str(space_radius))
+
+            attach_length_raw = params.get("radial_distance", params.get("attach_length"))
+            if attach_length_raw is not None:
+                try:
+                    attach_length = float(attach_length_raw)
+                except (TypeError, ValueError):
+                    return f"Error: radial_distance must be a number, got {attach_length_raw!r}"
+                if attach_length < 0:
+                    return "Error: radial_distance must be >= 0"
+                _set_option("--spider.attach-length", str(attach_length))
+
+            omit_center_raw = params.get("omit_center")
+            if omit_center_raw:
+                if "--spider.omit-center" not in options_list:
+                    options_list.append("--spider.omit-center")
+
             options = options_list
 
         return netgenerate(output_file, grid, grid_number, options)
