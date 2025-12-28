@@ -490,7 +490,7 @@ P1-7,RL: 补齐 manage_rl_task(train_custom) 验收单测,"**背景：** `P1-3` 
 
 **影响范围：** 参数契约的可回归性","1. `pytest -q` 下新增单测通过
 2. 单测不依赖真实 SUMO/sumo-rl 安装（全部 mock）","1. 单测必须验证“入参一致性”而非仅返回字符串
-2. 不引入网络依赖",未开始,等待确认
+2. 不引入网络依赖",已完成,已完成
 P1-8,超时机制: 补齐 tlsCycleAdaptation/tlsCoordinator 的 TIMEOUT_CONFIGS 配置,"**背景：** 当前 `mcp_tools/signal.py` 使用 `subprocess_run_with_timeout(operation='tlsCycleAdaptation'|'tlsCoordinator')`，但 `TIMEOUT_CONFIGS` 未显式定义这两个 operation，导致回退到默认超时（base=60,max=3600）。这会让短工具拥有过长的最大等待窗口，也不利于统一的超时策略审计。
 
 **修复内容：**
