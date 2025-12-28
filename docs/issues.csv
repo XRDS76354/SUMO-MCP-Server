@@ -31,7 +31,7 @@ P0-16,Tests: signal_opt TLS 优化超时回退（验收补齐测试）,"**背景
 
 **影响范围：** 回归可信度、跨平台稳定性","1. `pytest tests/test_workflows_signal_opt_fallback.py -q` 通过
 2. 测试在无 SUMO 环境也可运行（纯 mock）","1. 不引入新的第三方依赖
-2. Windows/Linux/macOS 路径处理使用 `tmp_path/Path`，不写死分隔符",未开始,等待确认
+2. Windows/Linux/macOS 路径处理使用 `tmp_path/Path`，不写死分隔符",已完成,已完成
 P0-3,完善 .gitignore 忽略本地第三方源码/测试资产,"**背景：** 当前仓库用于开源发布，但本地为了调试会下载/复制大体量依赖与测试资产（如 `sumo-rl` 源码包、路网样例、压缩包等）。这些文件一旦被 git 追踪会导致仓库膨胀、提交困难，并阻塞 push。
 
 **当前问题：**
