@@ -530,4 +530,4 @@ P3-4,路网生成(Spider): 补齐验收单测（spider 不含 grid）,"**背景�
 2. 新增单测：当 `grid=true`（默认）时仍包含 `--grid` 且不包含 `--spider`。
 
 **影响范围：** Spider/Grid 互斥逻辑的可回归性","1. `pytest -q` 通过
-2. 单测不依赖真实 SUMO（二进制与 subprocess 全 mock）","1. 断言必须覆盖“互斥”而非仅某个 flag 存在",未开始,等待确认
+2. 单测不依赖真实 SUMO（二进制与 subprocess 全 mock）","1. 断言必须覆盖“互斥”而非仅某个 flag 存在",已完成,已完成
