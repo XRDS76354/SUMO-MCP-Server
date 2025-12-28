@@ -3,6 +3,7 @@ import sys
 from typing import Optional, List
 
 from utils.sumo import build_sumo_diagnostics, find_sumo_tool_script
+from utils.output import truncate_text
 from utils.timeout import subprocess_run_with_timeout
 
 def tls_cycle_adaptation(net_file: str, route_files: str, output_file: str) -> str:
@@ -24,9 +25,9 @@ def tls_cycle_adaptation(net_file: str, route_files: str, output_file: str) -> s
     
     try:
         result = subprocess_run_with_timeout(cmd, operation="tlsCycleAdaptation", check=True)
-        return f"tlsCycleAdaptation successful.\nStdout: {result.stdout}"
+        return f"tlsCycleAdaptation successful.\nStdout: {truncate_text(result.stdout)}"
     except subprocess.CalledProcessError as e:
-        return f"tlsCycleAdaptation failed.\nStderr: {e.stderr}\nStdout: {e.stdout}"
+        return f"tlsCycleAdaptation failed.\nStderr: {truncate_text(e.stderr)}\nStdout: {truncate_text(e.stdout)}"
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -57,8 +58,8 @@ def tls_coordinator(net_file: str, route_files: str, output_file: str, options: 
         
     try:
         result = subprocess_run_with_timeout(cmd, operation="tlsCoordinator", check=True)
-        return f"tlsCoordinator successful.\nStdout: {result.stdout}"
+        return f"tlsCoordinator successful.\nStdout: {truncate_text(result.stdout)}"
     except subprocess.CalledProcessError as e:
-        return f"tlsCoordinator failed.\nStderr: {e.stderr}\nStdout: {e.stdout}"
+        return f"tlsCoordinator failed.\nStderr: {truncate_text(e.stderr)}\nStdout: {truncate_text(e.stdout)}"
     except Exception as e:
         return f"tlsCoordinator execution error: {str(e)}"
