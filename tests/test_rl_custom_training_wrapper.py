@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -47,6 +48,7 @@ class _DummyEnv:
         self._step = 0
         self._saved: list[Tuple[str, int]] = []
         self._closed = False
+        self._close_threads: list[str] = []
         _DummyEnv.last_instance = self
 
     def reset(self) -> Dict[str, list[int]]:
@@ -77,6 +79,7 @@ class _DummyEnv:
         self._saved.append((out_csv_name, episode))
 
     def close(self) -> None:
+        self._close_threads.append(threading.current_thread().name)
         self._closed = True
 
 
@@ -218,6 +221,11 @@ def test_run_rl_training_times_out_when_step_hangs(tmp_path: Path) -> None:
                     )
 
     assert "TimeoutError" in result or "timed out" in result.lower()
+    env = _DummyEnv.last_instance
+    assert env is not None
+    # Cancellation callback should close the environment even if the training thread is stuck.
+    assert env._closed is True
+    assert "MainThread" in env._close_threads
 
 
 def test_run_rl_training_redirects_traci_stdout(monkeypatch, tmp_path: Path) -> None:

@@ -1,4 +1,5 @@
 import os
+import threading
 from contextlib import contextmanager
 from importlib.util import find_spec
 from pathlib import Path
@@ -214,9 +215,25 @@ def run_rl_training(
                 except Exception:
                     pass
 
-        def _train(heartbeat: Callable[[], None]) -> str:
+        def _train(
+            heartbeat: Callable[[], None],
+            cancel_event: threading.Event,
+            register_cancel_callback: Callable[[Callable[[], None]], None],
+        ) -> str:
             env_class = _get_sumo_environment_class()
             env = None
+            cancel_message = "Training cancelled: timeout reached, cancellation requested."
+
+            def _cancel() -> None:
+                cancel_event.set()
+                if env is None:
+                    return
+                try:
+                    env.close()
+                except Exception:
+                    pass
+
+            register_cancel_callback(_cancel)
 
             try:
                 with _pushd(out_dir_abs):
@@ -251,6 +268,8 @@ def run_rl_training(
                 info_log: list[str] = []
 
                 for ep in range(1, episodes + 1):
+                    if cancel_event.is_set():
+                        return cancel_message
                     heartbeat()
                     with _pushd(out_dir_abs):
                         reset_result = env.reset()
@@ -303,6 +322,8 @@ def run_rl_training(
 
                     done_all = False
                     while not done_all and decision_steps < max_decisions:
+                        if cancel_event.is_set():
+                            return cancel_message
                         heartbeat()
                         # sumo-rl returns observations/rewards only for agents that are ready to act.
                         if single_agent_mode:
@@ -313,6 +334,8 @@ def run_rl_training(
                             actions = {ts_id: agents[ts_id].act() for ts_id in obs.keys() if ts_id in agents}
                             step_result = env.step(actions)
                         heartbeat()
+                        if cancel_event.is_set():
+                            return cancel_message
 
                         if not isinstance(step_result, tuple):
                             return "Training failed: Unexpected return value from sumo-rl step()."

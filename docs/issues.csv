@@ -463,7 +463,7 @@ P0-10,RL: 超时后训练应可终止并释放资源,"**背景：** 当前 RL �
 2. 单测验证在可中断场景下 `env.close()` 被调用
 3. 执行 `pytest -q` 通过","1. 不修改 sumo-rl 源码
 2. 不向 stdout 输出
-3. 取消机制应兼容 Windows（spawn/thread 行为差异）",未开始,等待确认
+3. 取消机制应兼容 Windows（spawn/thread 行为差异）",已完成,已完成
 P0-11,Simulation: 为 run_simple_simulation 增加自适应超时与超时回收,"**背景：** `run_workflow(sim_gen_eval)` 与 `signal_opt_workflow` 都依赖 `mcp_tools.simulation.run_simple_simulation`。当前实现以 TraCI 循环推进 `simulationStep()`，当路网规模大/车辆多/steps 高或 SUMO 异常时，可能出现长期阻塞，表现为 MCP 请求一直处理中（即使最终会生成部分输出文件）。
 
 **根因（第一性原理）：**

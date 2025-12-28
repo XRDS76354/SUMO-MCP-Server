@@ -175,6 +175,24 @@ def run_with_adaptive_timeout(
         executor = HeartbeatTimeoutExecutor(config)
         executor.current_timeout = timeout
 
+        cancel_event = threading.Event()
+        cancel_lock = threading.Lock()
+        cancel_callback: dict[str, Optional[Callable[[], None]]] = {"cb": None}
+
+        def register_cancel_callback(cb: Callable[[], None]) -> None:
+            with cancel_lock:
+                cancel_callback["cb"] = cb
+
+        def request_cancel() -> None:
+            cancel_event.set()
+            with cancel_lock:
+                cb = cancel_callback["cb"]
+            if cb is not None:
+                try:
+                    cb()
+                except Exception:
+                    logger.debug("Cancel callback failed", exc_info=True)
+
         # 在后台线程中运行，主线程监控心跳
         result_container: dict = {"result": None, "error": None, "done": False}
 
@@ -186,9 +204,15 @@ def run_with_adaptive_timeout(
             except (TypeError, ValueError):
                 return func()
 
+            kwargs: dict[str, Any] = {}
+            if "cancel_event" in sig.parameters:
+                kwargs["cancel_event"] = cancel_event
+            if "register_cancel_callback" in sig.parameters:
+                kwargs["register_cancel_callback"] = register_cancel_callback
+
             params = list(sig.parameters.values())
             if not params:
-                return func()
+                return func(**kwargs) if kwargs else func()
 
             first = params[0]
             if first.kind in (
@@ -196,9 +220,9 @@ def run_with_adaptive_timeout(
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 inspect.Parameter.VAR_POSITIONAL,
             ):
-                return func(heartbeat)
+                return func(heartbeat, **kwargs)
 
-            return func()
+            return func(**kwargs) if kwargs else func()
 
         def worker():
             try:
@@ -224,6 +248,7 @@ def run_with_adaptive_timeout(
                         on_progress(f"Operation still running, extended timeout to {new_timeout:.0f}s")
                 else:
                     # 无心跳，认为卡死
+                    request_cancel()
                     raise TimeoutError(
                         f"Operation '{operation}' timed out after {elapsed:.0f}s with no activity"
                     )
