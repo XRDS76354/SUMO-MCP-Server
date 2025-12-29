@@ -210,3 +210,6 @@ test_output/
 
 # Codex auto-prompt (local only)
 docs/codex-auto-prompt/
+
+# Temporary PR description file
+PR_DESCRIPTION.md
