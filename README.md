@@ -5,9 +5,13 @@
   <br />
   <br />
   <p align="center">
-    <img src="https://img.shields.io/badge/Status-Active-success" alt="Status" />
-    <img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python" />
-    <img src="https://img.shields.io/badge/License-MIT-green" alt="License" />
+    <a href="https://github.com/XRDS76354/SUMO-MCP-Server"><img src="https://img.shields.io/badge/Status-Active-success" alt="Status" /></a>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License" /></a>
+    <a href="https://deepwiki.com/XRDS76354/SUMO-MCP-Server"><img src="https://deepwiki.com/badge.svg" alt="DeepWiki" /></a>
+    <a href="https://github.com/XRDS76354/SUMO-MCP-Server"><img src="https://img.shields.io/github/last-commit/XRDS76354/SUMO-MCP-Server" alt="Last Commit" /></a>
+    <a href="doc/API.md"><img src="https://img.shields.io/badge/API-Docs-blue" alt="API Docs" /></a>
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Platform" />
   </p>
 </div>
 
