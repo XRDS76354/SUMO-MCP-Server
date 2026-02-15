@@ -1,4 +1,6 @@
-# SUMO-MCP: 智能交通仿真与控制的 MCP 平台
+# SUMO-MCP: MCP Server for SUMO Traffic Simulation (LLM-Oriented)
+
+[中文文档](README_CN.md)
 
 <div align="center">
   <img src="doc/sumo-mcp.jpg" alt="SUMO-MCP Logo" width="200" />
@@ -15,232 +17,217 @@
   </p>
 </div>
 
-SUMO-MCP 是一个连接大语言模型 (LLM) 与 [Eclipse SUMO](https://www.eclipse.org/sumo/) 交通仿真的中间件。通过 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)，它允许 AI 智能体（如 Claude, Cursor, TRAE等）直接调用 SUMO 的核心功能，实现从**OpenStreetMap 数据获取**、**路网生成**、**需求建模**到**仿真运行**与**信号优化**的全流程自动化。
+SUMO-MCP is a middleware layer connecting Large Language Models (LLMs) with [Eclipse SUMO](https://www.eclipse.org/sumo/) traffic simulation. Through [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), AI agents (such as Claude, Cursor, and TRAE) can directly call SUMO capabilities for end-to-end automation across **OpenStreetMap data retrieval**, **network generation**, **demand modeling**, **simulation execution**, and **signal optimization**.
 
-系统支持**离线仿真**（基于文件的工作流）和**在线交互**（实时 TraCI 控制）两种模式，满足从宏观规划到微观控制的多样化需求。
+The system supports both **offline workflows** (file-based pipelines) and **online interaction** (real-time TraCI control), covering use cases from macroscopic planning to microscopic control.
 
-API 参考见 `doc/API.md`（唯一真相源以 `src/server.py` 的工具注册为准）。
+API reference: `doc/API.md` (the single source of truth remains tool registration in `src/server.py`).
 
-## 🚀 核心功能特性
+## Core Features
 
-### 1. 全面的工具链集成
-聚合符合直觉的核心 MCP 接口，简化 SUMO 复杂操作：
+### 1. Unified Toolchain
+Core MCP interfaces are grouped into intuitive tools to simplify common SUMO operations:
 
-![SUMO-MCP 工具列表](doc/sumo-mcp工具列表.png)
+![SUMO-MCP Tool List](doc/sumo-mcp工具列表.png)
 
-*   **路网管理 (`manage_network`)**: 支持路网生成 (`generate`)、OSM 地图下载 (`download_osm`) 与格式转换 (`convert`)。
-*   **需求管理 (`manage_demand`)**: 提供随机行程生成 (`generate_random`)、OD 矩阵转换 (`convert_od`) 和路径计算 (`compute_routes`)。
-*   **信号优化 (`optimize_traffic_signals`)**: 集成周期自适应 (`cycle_adaptation`) 和绿波协调 (`coordination`) 算法；其中 `cycle_adaptation` 输出为 SUMO `<additional>` 信号方案文件（由工作流自动挂载到 `<additional-files>`）。
-*   **仿真与分析**: 支持标准配置文件仿真 (`run_simple_simulation`) 与 FCD 轨迹数据分析 (`run_analysis`)。
+- **Network Management (`manage_network`)**: Generate networks (`generate`), download OSM data (`download_osm`), and convert formats (`convert`).
+- **Demand Management (`manage_demand`)**: Generate random trips (`generate_random`), convert OD matrices (`convert_od`), and compute routes (`compute_routes`).
+- **Signal Optimization (`optimize_traffic_signals`)**: Includes cycle adaptation (`cycle_adaptation`) and coordination (`coordination`). `cycle_adaptation` outputs SUMO `<additional>` signal plans (automatically mounted into `<additional-files>` by workflows).
+- **Simulation & Analysis**: Run standard config-based simulation (`run_simple_simulation`) and FCD trajectory analysis (`run_analysis`).
 
-部分聚合工具支持在 `params` 中传入 `options: list[str]`，用于将额外参数按 token 透传到底层 SUMO 二进制/脚本（详见 `doc/API.md` 的“通用约定”）。
+Some aggregated tools accept `params.options: list[str]`, which are appended token-by-token to underlying SUMO binaries/scripts (see "General Conventions" in `doc/API.md`).
 
-### 2. 在线实时交互 (Online Interaction)
-支持通过 TraCI 协议与运行中的仿真实例进行实时交互，赋予 LLM 微观控制与感知能力：
+### 2. Online Interaction
+Real-time control via TraCI enables fine-grained closed-loop operations:
 
-*   **仿真控制 (`control_simulation`)**: 提供启动连接 (`connect`)、单步推演 (`step`) 和安全断开 (`disconnect`)。
-*   **状态查询 (`query_simulation_state`)**: 实时获取车辆列表 (`vehicle_list`)、车辆细节变量 (`vehicle_variable`) 及全局仿真统计。
+- **Simulation Control (`control_simulation`)**: Connect (`connect`), step (`step`), and cleanly disconnect (`disconnect`).
+- **State Query (`query_simulation_state`)**: Fetch active vehicle IDs (`vehicle_list`), per-vehicle variables (`vehicle_variable`), and global simulation statistics.
 
-### 3. 自动化智能工作流
-内置端到端的自动化工作流 (`run_workflow`)，简化复杂科研与工程任务：
+### 3. Automated Workflows
+Built-in end-to-end workflows (`run_workflow`) for research and engineering tasks:
 
-*   **Sim Gen & Eval (`sim_gen_eval`)**: 一键执行 "生成路网 -> 生成需求 -> 路径计算 -> 仿真运行 -> 结果分析" 的完整闭环。
-    - 参数：`grid_number`(别名:`grid_size`,`size`), `sim_seconds`(别名:`steps`,`duration`,`end_time`), `output_dir`
-*   **Signal Optimization (`signal_opt`)**: 自动执行 "基线仿真 -> 信号优化 -> 优化仿真 -> 效果对比" 的全流程，并自动处理优化工具输出的 `<additional>` 文件挂载。
-    - 参数：`net_file`(必填), `route_file`(必填), `sim_seconds`(别名:`steps`,`duration`), `use_coordinator`, `output_dir`
-*   **RL Training (`rl_train`)**: 针对内置场景的强化学习训练；自定义路网训练使用 `manage_rl_task/train_custom`（底层基于开源项目 [sumo-rl](https://github.com/LucasAlegre/sumo-rl)；要求路网包含信号灯，且运行建议显式设置 `SUMO_HOME`）。
-    - 参数：`scenario_name`(别名:`scenario`), `episodes`(别名:`num_episodes`), `steps`(别名:`steps_per_episode`), `output_dir`
+- **Sim Gen & Eval (`sim_gen_eval`)**: One-shot pipeline: "generate network -> generate demand -> route computation -> simulation -> analysis".
+  - Params: `grid_number` (aliases: `grid_size`, `size`), `sim_seconds` (aliases: `steps`, `duration`, `end_time`), `output_dir`
+- **Signal Optimization (`signal_opt`)**: Full pipeline: "baseline simulation -> optimization -> optimized simulation -> comparison" with automatic handling of `<additional>` outputs.
+  - Params: `net_file` (required), `route_file` (required), `sim_seconds` (aliases: `steps`, `duration`), `use_coordinator`, `output_dir`
+- **RL Training (`rl_train`)**: Reinforcement learning training for built-in scenarios. For custom network training, use `manage_rl_task/train_custom` (based on [sumo-rl](https://github.com/LucasAlegre/sumo-rl); network must contain traffic lights; explicitly setting `SUMO_HOME` is recommended).
+  - Params: `scenario_name` (alias: `scenario`), `episodes` (alias: `num_episodes`), `steps` (alias: `steps_per_episode`), `output_dir`
 
-> 💡 **提示**: 关于各工具的详细参数说明与调用示例，请参考 [API 详细文档](doc/API.md)。
-
----
-
-## 🛠️ 环境要求
-
-*   **操作系统**: Windows / Linux / macOS
-*   **Python**: 3.10+ (强制要求，以支持最新的类型系统与 MCP SDK)
-*   **SUMO**: [Eclipse SUMO](https://www.eclipse.org/sumo/)(需配置 `SUMO_HOME` 环境变量，并确保其二进制目录在 `PATH` 中)
-
-### Python 依赖
-
-**运行时依赖**（安装后即可使用所有 MCP 工具）：
-- `mcp[cli]>=1.0.0` - 官方 Model Context Protocol SDK
-- `sumolib>=1.20.0` - SUMO Python 库（路网操作、二进制调用）
-- `traci>=1.20.0` - Traffic Control Interface（在线实时控制）
-- `sumo-rl>=1.4.3` - SUMO 强化学习环境（RL 训练功能）
-- `pandas>=2.0.0` - 数据分析（FCD 轨迹处理）
-- `requests>=2.31.0` - HTTP 请求（OSM 数据下载）
-
-**开发依赖**（可选，用于测试和代码质量检查）：
-- `mypy>=1.8.0` - 静态类型检查
-- `flake8>=7.0.0` - 代码风格检查
-- `pytest>=8.0.0` - 单元测试框架
-- `psutil>=5.9.0` - 系统资源监控（性能测试）
-- `types-*` - 类型存根包（mypy 支持）
-
-使用 `.\install_deps.ps1 -NoDev` 可以跳过开发依赖的安装。
+For detailed parameters and examples, see [API documentation](doc/API.md).
 
 ---
 
-## 📦 安装指南
+## Requirements
 
-### 1. 获取代码
+- **OS**: Windows / Linux / macOS
+- **Python**: 3.10+
+- **SUMO**: [Eclipse SUMO](https://www.eclipse.org/sumo/) (`SUMO_HOME` recommended; SUMO binaries should be available in `PATH`)
 
-您可以通过以下方式获取项目：
+### Python Dependencies
 
-**方式 A：通过 Git 克隆 (推荐)**
+Runtime dependencies (required for all MCP tools):
+- `mcp[cli]>=1.0.0`
+- `sumolib>=1.20.0`
+- `traci>=1.20.0`
+- `sumo-rl>=1.4.3`
+- `pandas>=2.0.0`
+- `requests>=2.31.0`
+
+Development dependencies (optional):
+- `mypy>=1.8.0`
+- `flake8>=7.0.0`
+- `pytest>=8.0.0`
+- `psutil>=5.9.0`
+- `types-*`
+
+On Windows, `./install_deps.ps1 -NoDev` installs runtime dependencies only.
+
+---
+
+## Installation
+
+### 1. Get the Code
+
+Option A: clone from GitHub (recommended)
 ```bash
 git clone https://github.com/XRDS76354/SUMO-MCP-Server.git
 cd sumo-mcp
 ```
 
-**方式 B：下载压缩包**
-1. 访问 [GitHub 项目主页](https://github.com/XRDS76354/SUMO-MCP-Server)。
-2. 点击 **Code** 按钮，选择 **Download ZIP**。
-3. 解压并进入项目目录。
+Option B: download ZIP
+1. Visit the [GitHub repository](https://github.com/XRDS76354/SUMO-MCP-Server).
+2. Click **Code** -> **Download ZIP**.
+3. Extract and enter the project folder.
 
-**方式 C：作为依赖安装 (WIP)**
-如果您想在其他项目中使用，可以尝试：
+Option C: install as dependency (WIP)
 ```bash
 pip install git+https://github.com/XRDS76354/SUMO-MCP-Server.git
 ```
 
-### 2. 安装与配置 SUMO
+### 2. Install and Configure SUMO
 
-本系统依赖于 [Eclipse SUMO](https://www.eclipse.org/sumo/) 仿真引擎。
+This project depends on [Eclipse SUMO](https://www.eclipse.org/sumo/).
 
-#### 重要提示 (Important Notes)
-*   **仅使用 SUMO 二进制工具**（`sumo` / `netconvert` / `netgenerate` / `duarouter` / `od2trips` 等）：保证命令在 `PATH` 中即可。
-*   **使用 SUMO tools 脚本**（`randomTrips.py` / `osmGet.py` / `tls*.py` 等）：需要能定位到 `<SUMO_HOME>/tools`，推荐设置 `SUMO_HOME` 指向 SUMO 安装目录，并把 `$SUMO_HOME/bin` 加入 `PATH`。
+Important notes:
+- If you only use SUMO binaries (`sumo`, `netconvert`, `netgenerate`, `duarouter`, `od2trips`, ...), make sure they are in `PATH`.
+- If you use SUMO tool scripts (`randomTrips.py`, `osmGet.py`, `tls*.py`, ...), ensure `<SUMO_HOME>/tools` is discoverable. Setting `SUMO_HOME` to your SUMO install directory and adding `$SUMO_HOME/bin` to `PATH` is recommended.
 
-#### 各平台安装步骤
-*   **Windows**:
-    1. 安装 SUMO：使用官方安装包（文档：https://sumo.dlr.de/）。
-    2. 设置环境变量（示例）：
-       - CMD：`setx SUMO_HOME "C:\Program Files\Eclipse\sumo"`，`setx PATH "%SUMO_HOME%\bin;%PATH%"`
-       - PowerShell：`$env:SUMO_HOME="C:\Program Files\Eclipse\sumo"; $env:PATH="$env:SUMO_HOME\bin;$env:PATH"`
-    3. 验证：`sumo --version`
-*   **Linux (Ubuntu/Debian)**:
-    1. 安装：`sudo apt-get install sumo sumo-tools`
-    2. 可选（使用 tools 脚本时推荐）：`export SUMO_HOME=/usr/share/sumo` 并把 `$SUMO_HOME/bin` 加入 `PATH`
-    3. 验证：`sumo --version`
-*   **macOS (Homebrew)**:
-    1. 安装：`brew install sumo`
-    2. Homebrew 通常会自动把 `sumo` 加到 `PATH`；如需 tools 脚本，可设置 `SUMO_HOME` 指向 `.../share/sumo`（例如 `/usr/local/share/sumo` 或 `/opt/homebrew/share/sumo`）
-    3. 验证：`sumo --version`
+Platform-specific setup:
+- **Windows**
+  1. Install SUMO using the official installer ([docs](https://sumo.dlr.de/)).
+  2. Set environment variables (example):
+     - CMD: `setx SUMO_HOME "C:\Program Files\Eclipse\sumo"`, `setx PATH "%SUMO_HOME%\bin;%PATH%"`
+     - PowerShell: `$env:SUMO_HOME="C:\Program Files\Eclipse\sumo"; $env:PATH="$env:SUMO_HOME\bin;$env:PATH"`
+  3. Verify: `sumo --version`
+- **Linux (Ubuntu/Debian)**
+  1. Install: `sudo apt-get install sumo sumo-tools`
+  2. Optional but recommended for tools scripts: `export SUMO_HOME=/usr/share/sumo` and add `$SUMO_HOME/bin` to `PATH`
+  3. Verify: `sumo --version`
+- **macOS (Homebrew)**
+  1. Install: `brew install sumo`
+  2. Homebrew usually exposes `sumo` in `PATH`; for tools scripts, set `SUMO_HOME` to `.../share/sumo` (for example `/usr/local/share/sumo` or `/opt/homebrew/share/sumo`)
+  3. Verify: `sumo --version`
 
-> � **更多说明**: 更多关于 SUMO 安装与配置的详细信息，请参考 [SUMO 官方文档](https://sumo.dlr.de/docs/)。
+For more details, see [SUMO official docs](https://sumo.dlr.de/docs/).
 
-### 3. Python 环境配置
+### 3. Python Environment
 
-#### Windows 一键安装
+#### Windows one-click installation
 
-在 Windows 上可以直接使用仓库自带脚本创建 `.venv` 并安装依赖（默认包含开发依赖 `.[dev]`）。
+Use the built-in scripts to create `.venv` and install dependencies (default includes `.[dev]`).
 
-**方式 A：PowerShell（推荐）**
-
+Option A: PowerShell (recommended)
 ```powershell
 .\install_deps.ps1
 
-# 可选参数：
-.\install_deps.ps1 -NoDev                                               # 仅安装运行依赖
-.\install_deps.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple  # 使用国内镜像
+# Optional
+.\install_deps.ps1 -NoDev
+.\install_deps.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-**方式 B：CMD（命令提示符）**
+Option B: CMD
 ```bat
 install_deps.bat
 
-REM 可选参数：
+REM Optional
 install_deps.bat -NoDev
 install_deps.bat -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-脚本会自动：
-- 检测并验证 Python 3.10+ 版本
-- 创建虚拟环境 `.venv`（如不存在）
-- 升级 pip/setuptools/wheel
-- 安装项目依赖（editable mode）
+The scripts will:
+- Validate Python 3.10+
+- Create `.venv` if missing
+- Upgrade pip/setuptools/wheel
+- Install project dependencies in editable mode
 
-您可以选择以下任一方式手动配置开发环境。
-
-#### 方式1：使用 uv (推荐 - 极速)
-
-[uv](https://github.com/astral-sh/uv) 是目前最快的 Python 包管理工具，支持一键同步依赖。
+#### Option 1: use uv (recommended)
 
 ```bash
-# 1. 安装 uv (如果尚未安装)
+# 1. Install uv
 pip install uv
 
-# 2. 同步项目环境 (自动创建虚拟环境并安装依赖)
+# 2. Sync dependencies
 uv sync
 
-# 3. 激活环境
+# 3. Activate environment
 # Windows:
 .venv\Scripts\activate
 # Linux/macOS:
 source .venv/bin/activate
 ```
 
-#### 方式2：使用 Conda + Pip 
-
-如果您习惯使用 Conda 管理环境，可以按照以下步骤操作：
+#### Option 2: Conda + pip
 
 ```bash
-# 1. 创建并激活 Conda 环境
+# 1. Create and activate conda env
 conda create -n sumo-mcp python=3.10 -y
 conda activate sumo-mcp
 
-# 2. 安装项目依赖
-# 推荐国内用户使用镜像源加速，一键安装项目及开发工具
+# 2. Install dependencies
 pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 或者仅安装基础依赖
+# Runtime-only alternative:
 pip install -r requirements.txt
 ```
 
 ---
 
-## 🚦 启动与配置
+## Start and Configure
 
-### 1. 本地直接启动 (用于测试)
+### 1. Run Locally (for testing)
 
-服务器基于官方 `mcp.server.fastmcp.FastMCP` 实现，通过标准输入输出 (stdio) 传输 JSON-RPC 2.0 消息。
+The server is implemented with `mcp.server.fastmcp.FastMCP` and communicates over stdio using JSON-RPC 2.0.
 
-使用 Python 直接启动 MCP 服务器：
+Start directly with Python:
 
 ```bash
 python src/server.py
 ```
 
-或者使用仓库自带的启动脚本（会自动处理环境检测与 `PATH` 挂载）：
+Or use provided startup scripts:
+- Linux/macOS: `./start_server.sh`
+- Windows (PowerShell): `.\start_server.ps1`
+- Windows (CMD): `start_server.bat`
 
-*   **Linux/macOS**: `./start_server.sh`
-*   **Windows (PowerShell)**: `.\start_server.ps1`
-*   **Windows (CMD)**: `start_server.bat`
+### 2. MCP Host Configuration (critical)
 
-### 2. MCP 服务配置 (关键 - 用于 AI 宿主)
+When configuring in host apps (Claude Desktop, Trae, Cursor), always use absolute paths.
 
-配置 MCP 服务器到宿主应用（如 Claude Desktop, Trae, Cursor）时，**必须使用绝对路径**。
+A. Find required paths
+- Python executable
+  - Windows (PowerShell): `(Get-Command python).Source`
+  - Linux/macOS: `which python`
+- `SUMO_HOME`
+  - Windows: `echo %SUMO_HOME%`
+  - Linux/macOS: `echo $SUMO_HOME`
 
-#### A. 查找必要路径
-在终端中激活您的环境后，运行以下命令：
-
-*   **Python 绝对路径**:
-    - Windows (PS): `(Get-Command python).Source`
-    - Linux/macOS: `which python`
-*   **SUMO_HOME 路径**:
-    - Windows: `echo %SUMO_HOME%`
-    - Linux/macOS: `echo $SUMO_HOME`
-
-#### B. 宿主应用配置示例
-将以下 JSON 添加到宿主应用的配置文件中（例如 Claude Desktop 的 `claude_desktop_config.json`）：
+B. Example host config (`claude_desktop_config.json`)
 
 ```json
 {
   "mcpServers": {
     "sumo-mcp": {
-      "command": "/path/to/your/env/python", 
+      "command": "/path/to/your/env/python",
       "args": ["/path/to/sumo-mcp/src/server.py"],
       "env": {
         "SUMO_HOME": "/your/actual/sumo/path",
@@ -251,104 +238,109 @@ python src/server.py
 }
 ```
 
-> **⚠️ 重要提示**: 
-> 1. `command`: 必须替换为您找到的 **Python 解释器绝对路径**。
-> 2. `args`: 必须替换为项目 `src/server.py` 的 **绝对路径**。
-> 3. `env`: 显式设置 `SUMO_HOME` 和 `PYTHONPATH` 可以有效避免 `ModuleNotFoundError` 或环境识别错误。
+Important:
+1. Replace `command` with the absolute path of your Python interpreter.
+2. Replace `args` with the absolute path of `src/server.py`.
+3. Explicitly setting `SUMO_HOME` and `PYTHONPATH` helps avoid `ModuleNotFoundError` and environment mismatch issues.
 
-工具清单与参数约定请以 `src/server.py` 或 `doc/API.md` 为准。
-
-更多配置示例见 `mcp_config_examples.json`。
+More config samples: `mcp_config_examples.json`.
 
 ---
 
-## 💡 使用示例 (Prompt)
+## Prompt Examples
 
-在配置了 MCP 的 AI 助手中，您可以尝试以下自然语言指令：
+In any MCP-enabled AI assistant, try prompts like:
 
-*   **工作流任务**:
+- Workflow task:
 
-    > "生成一个 3x3 的网格路网，模拟 100 秒的交通流，并告诉我平均车速。"
-    > *(AI 将调用 `run_workflow("sim_gen_eval", {"grid_number": 3, "sim_seconds": 100})`)*
+  > "Generate a 3x3 grid network, simulate 100 seconds, and report the average speed."
+  > *(Likely calls `run_workflow("sim_gen_eval", {"grid_number": 3, "sim_seconds": 100})`)*
 
-*   **在线交互任务**:
-    > "启动这个配置文件的仿真，每运行一步就告诉我 ID 为 'v_0' 的车辆速度，如果速度低于 5m/s 就提醒我。"
-    > *(AI 将调用 `control_simulation` 和 `query_simulation_state`)*
-*   **强化学习任务**:
+- Online interaction task:
 
-    > "列出所有内置的强化学习场景，然后选择一个简单的路口场景训练 5 个回合。"
-    > *(AI 将调用 `manage_rl_task("list_scenarios")` 和 `run_workflow("rl_train", {"scenario_name": "...", "episodes": 5})`)*
-- **复杂综合场景示例 (推荐测试)**:
+  > "Start simulation for this config and report vehicle speed for ID `v_0` each step. Alert me if speed drops below 5 m/s."
+  > *(Likely calls `control_simulation` + `query_simulation_state`)*
 
-  > "使用工具中的sumo-mcp完成下面操作：生成一个4x4的网格路网，要求所有节点均为交叉路口，设置网格间距为100米（默认值）确保所有交叉口都配置交通信号灯，设置车辆总数为200辆，运行进行1000秒的交通仿真，启用车辆轨迹记录功能，提取所有车辆的速度数据计算整个仿真期间所有车辆的平均速度，结果精确到小数点后两位。"
-  >
-  > **AI 内部执行逻辑**:
-  >
-  > 1. 调用 `manage_network(action="generate", output_file="grid.net.xml", params={"grid": true, "grid_number": 4})`
-  > 2. 调用 `manage_demand(action="random_trips", net_file="grid.net.xml", output_file="trips.xml", params={"end_time": 1000, "period": 5.0})` (计算: 1000s / 200辆 = 每5秒一辆)
-  > 3. 调用 `run_workflow("sim_gen_eval", {"grid_number": 4, "sim_seconds": 1000, "output_dir": "results"})` 或手动组合 `control_simulation`
-  > 4. 调用 `run_analysis(fcd_file="results/fcd.xml")` 获取平均速度统计。
+- RL task:
+
+  > "List built-in RL scenarios and train a simple intersection for 5 episodes."
+  > *(Likely calls `manage_rl_task("list_scenarios")` + `run_workflow("rl_train", {"scenario_name": "...", "episodes": 5})`)*
+
+- Complex integrated scenario:
+
+  > "Use sumo-mcp to generate a 4x4 grid network where all nodes are intersections, spacing 100m, with traffic lights at every intersection. Generate 200 vehicles, run a 1000-second simulation with trajectory recording, then compute average speed for all vehicles over the whole simulation and report it with 2 decimal places."
+
+  Typical execution flow:
+  1. `manage_network(action="generate", output_file="grid.net.xml", params={"grid": true, "grid_number": 4})`
+  2. `manage_demand(action="random_trips", net_file="grid.net.xml", output_file="trips.xml", params={"end_time": 1000, "period": 5.0})`
+  3. `run_workflow("sim_gen_eval", {"grid_number": 4, "sim_seconds": 1000, "output_dir": "results"})` (or compose online calls manually)
+  4. `run_analysis(fcd_file="results/fcd.xml")`
 
 ---
 
-## 🧰 Troubleshooting
+## Troubleshooting
 
-*   **提示找不到 `sumo`**（例如：`Error: Could not locate SUMO executable (`sumo`).`）：
-    1. 先在终端执行 `sumo --version`，确认 SUMO 二进制可用。
-    2. 若不可用：把 SUMO 的 `bin/` 加入 `PATH`，或设置 `SUMO_HOME` 并把 `$SUMO_HOME/bin` 加入 `PATH`。
-*   **提示找不到 tools 脚本**（例如：`randomTrips.py` / `osmGet.py` / `tls*.py`）：
-    1. 确认 `SUMO_HOME` 指向 SUMO 安装目录。
-    2. 确认 `<SUMO_HOME>/tools` 目录存在且包含对应脚本。
-*   **MCP 调用卡住 / 响应显示 `undefined`**：
-    1. 该项目通过 stdio 传输 JSON-RPC，任何子进程（SUMO / tools 脚本）向标准输出打印的非 JSON 文本都可能污染通信，导致宿主无法解析响应。
-    2. 升级到最新版本（已将 TraCI 启动的 SUMO stdout 做隔离），或确保相关子进程输出被捕获/重定向。
-*   **MCP 客户端无法继承环境变量**：
-    1. 在 MCP 客户端配置中显式传入 `env`（参考 `mcp_config_examples.json`）。
+- Cannot find `sumo` (for example: `Error: Could not locate SUMO executable ('sumo').`)
+  1. Run `sumo --version` in terminal.
+  2. If unavailable, add SUMO `bin/` to `PATH`, or set `SUMO_HOME` and add `$SUMO_HOME/bin` to `PATH`.
 
-## 📂 项目结构
+- Cannot find SUMO tools scripts (`randomTrips.py`, `osmGet.py`, `tls*.py`)
+  1. Ensure `SUMO_HOME` points to the SUMO installation directory.
+  2. Ensure `<SUMO_HOME>/tools` exists and includes required scripts.
+
+- MCP call hangs or host shows `undefined`
+  1. Communication is JSON-RPC over stdio; non-JSON stdout from child processes can corrupt transport.
+  2. Upgrade to latest version (TraCI SUMO stdout isolation is included), or ensure child-process stdout is captured/redirected.
+
+- MCP client does not inherit environment variables
+  1. Pass explicit `env` in your MCP host config (`mcp_config_examples.json`).
+
+## Project Structure
 
 ```text
 sumo-mcp/
 ├── doc/
-│   ├── API.md             # MCP 工具 API 参考（与 src/server.py 对齐）
-│   └── sumo-mcp.jpg       # 项目图片
+│   ├── API.md              # MCP tool API reference (English)
+│   ├── API_CN.md           # MCP tool API reference (Chinese)
+│   └── sumo-mcp.jpg        # Project image
 ├── src/
-│   ├── server.py           # MCP 服务器入口 (FastMCP 实现，聚合接口)
-│   ├── utils/              # 通用工具
-│   │   ├── connection.py   # TraCI 连接管理器
-│   │   ├── output.py       # 输出处理工具
-│   │   ├── sumo.py         # SUMO 配置工具
-│   │   ├── timeout.py      # 超时管理工具
-│   │   └── traci.py        # TraCI 封装工具
-│   ├── mcp_tools/          # 核心工具模块
-│   │   ├── analysis.py     # 分析工具
-│   │   ├── network.py      # 网络工具
-│   │   ├── route.py        # 路径工具
-│   │   ├── signal.py       # 信号工具
-│   │   ├── simulation.py   # 仿真控制工具
-│   │   ├── vehicle.py      # 车辆工具
-│   │   └── rl.py           # 强化学习工具
-│   ├── resources/          # 资源文件
-│   └── workflows/          # 自动化工作流
-│       ├── sim_gen.py      # 仿真生成工作流
-│       ├── signal_opt.py   # 信号优化工作流
-│       └── rl_train.py     # RL 训练工作流
-├── pyproject.toml          # 项目配置与依赖管理
-├── requirements.lock       # 锁定依赖版本
-└── README.md               # 项目文档
+│   ├── server.py           # MCP server entry (FastMCP, aggregated interfaces)
+│   ├── utils/              # Common utilities
+│   │   ├── connection.py   # TraCI connection manager
+│   │   ├── output.py       # Output helpers
+│   │   ├── sumo.py         # SUMO config helpers
+│   │   ├── timeout.py      # Timeout helpers
+│   │   └── traci.py        # TraCI wrappers
+│   ├── mcp_tools/          # Core tool modules
+│   │   ├── analysis.py     # Analysis tools
+│   │   ├── network.py      # Network tools
+│   │   ├── route.py        # Routing tools
+│   │   ├── signal.py       # Signal tools
+│   │   ├── simulation.py   # Simulation control tools
+│   │   ├── vehicle.py      # Vehicle tools
+│   │   └── rl.py           # Reinforcement learning tools
+│   ├── resources/          # Resource files
+│   └── workflows/          # Automated workflows
+│       ├── sim_gen.py      # Simulation generation workflow
+│       ├── signal_opt.py   # Signal optimization workflow
+│       └── rl_train.py     # RL training workflow
+├── pyproject.toml          # Project config and dependencies
+├── requirements.lock       # Locked dependency versions
+├── README.md               # Project documentation (English)
+└── README_CN.md            # Project documentation (Chinese)
 ```
 
-## 📄 许可证
+## License
 
 MIT License
 
-## 📣 媒体支持
+## Media Support
 
-感谢以下媒体平台对项目的支持：
+Thanks to the following media platform for coverage:
 
-- BigTrans 公众号 - [重磅开源！SUMO-MCP让大模型助力交通仿真](https://mp.weixin.qq.com/s/fJ_W0zEQlgA-1bAfmjki-A)
+- BigTrans WeChat Official Account - [重磅开源！SUMO-MCP让大模型助力交通仿真](https://mp.weixin.qq.com/s/fJ_W0zEQlgA-1bAfmjki-A)
 
-## 贡献者 ✨
+## Contributors
 
 <table>
   <tr>
