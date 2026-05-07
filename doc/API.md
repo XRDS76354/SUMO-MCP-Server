@@ -41,6 +41,10 @@ The project attempts to infer `SUMO_HOME`, but explicitly setting the `SUMO_HOME
 
 To provide a more concise and intuitive interface, the original 20+ individual tools are merged into 7 core tools. Each core tool distinguishes concrete operations through `action` or `method`.
 
+### ezdesignX Conversion
+SUMO-MCP also provides ezdesignX v1 `JSON` / `JSONC` conversion into SUMO
+network artifacts via a dedicated tool and a `manage_network` action.
+
 ## 1. Network Management (`manage_network`)
 
 Manage SUMO network generation, conversion, and OSM download.
@@ -50,17 +54,33 @@ Manage SUMO network generation, conversion, and OSM download.
   - `action` (string):
     - `generate`: Generate abstract networks (Grid/Spider).
     - `convert` (or `convert_osm`): Convert OSM file to SUMO network.
+    - `convert_ezdesignx`: Convert ezdesignX v1 JSON/JSONC into SUMO artifacts.
     - `download_osm`: Download map data from OpenStreetMap.
   - `output_file` (string): Output file path (for `download_osm`, this is output directory).
   - `params` (object, optional):
     - `generate`: `{ "grid": bool, "grid_number": int, "spider": bool }`
     - `convert` / `convert_osm`: `{ "osm_file": string }`
+    - `convert_ezdesignx`: `{ "input_json": string, "validation": "basic"|"topology"|"strict", "netconvert_bin"?: string, "sumo_bin"?: string, "sumo_gui_bin"?: string }`
     - `download_osm`: `{ "bbox": "w,s,e,n", "prefix": string }`
     - `options`: `list[string]` extra CLI options (see General Conventions)
 
 Notes:
 - In `generate`, `spider=true` overrides `grid/grid_number` and forces a spider network.
 - For more spider parameters, pass native `netgenerate` flags via `params.options`.
+
+### Dedicated ezdesignX tool (`convert_ezdesignx_network`)
+
+- **Tool name**: `convert_ezdesignx_network`
+- **Parameters**:
+  - `input_json` (string): ezdesignX v1 `JSON` or `JSONC` file path
+  - `output_dir` (string): output directory
+  - `validation` (string, optional): `basic`, `topology`, or `strict`
+  - `netconvert_bin` (string, optional)
+  - `sumo_bin` (string, optional)
+  - `sumo_gui_bin` (string, optional)
+- **Returns**:
+  a string summary including `schemaKind`, `adapterMode`, output paths, and
+  validation status
 
 ## 2. Demand Management (`manage_demand`)
 

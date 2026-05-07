@@ -22,7 +22,7 @@ SUMO-MCP is a middleware layer connecting Large Language Models (LLMs) with [Ecl
 The system supports both **offline workflows** (file-based pipelines) and **online interaction** (real-time TraCI control), covering use cases from macroscopic planning to microscopic control.
 
 API reference: `doc/API.md` (the single source of truth remains tool registration in `src/server.py`).
-JunctionX conversion guide: [doc/JUNCTIONX_TO_SUMO.md](doc/JUNCTIONX_TO_SUMO.md).
+ezdesignX conversion guide: [doc/EZDESIGNX_TO_SUMO.md](doc/EZDESIGNX_TO_SUMO.md).
 
 ## Core Features
 
@@ -31,7 +31,7 @@ Core MCP interfaces are grouped into intuitive tools to simplify common SUMO ope
 
 ![SUMO-MCP Tool List](doc/sumo-mcp工具列表.png)
 
-- **Network Management (`manage_network`)**: Generate networks (`generate`), download OSM data (`download_osm`), convert formats (`convert`), and convert JunctionX JSON (`convert_junctionx`). A dedicated `convert_junctionx_network` tool is also available.
+- **Network Management (`manage_network`)**: Generate networks (`generate`), download OSM data (`download_osm`), convert formats (`convert`), and convert ezdesignX v1 JSON/JSONC (`convert_ezdesignx`). A dedicated `convert_ezdesignx_network` tool is also available.
 - **Demand Management (`manage_demand`)**: Generate random trips (`generate_random`), convert OD matrices (`convert_od`), and compute routes (`compute_routes`).
 - **Signal Optimization (`optimize_traffic_signals`)**: Includes cycle adaptation (`cycle_adaptation`) and coordination (`coordination`). `cycle_adaptation` outputs SUMO `<additional>` signal plans (automatically mounted into `<additional-files>` by workflows).
 - **Simulation & Analysis**: Run standard config-based simulation (`run_simple_simulation`) and FCD trajectory analysis (`run_analysis`).

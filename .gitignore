@@ -190,9 +190,7 @@ kiro_test/
 .kiro/
 
 # Test output directories (generated artifacts, not source)
-tests/output_*/
-tests/test_outputs/
-tests/__pycache__/
+tests/
 
 # Local SUMO distribution copy (too large for git)
 sumo/

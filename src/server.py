@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from utils.traci import ensure_traci_start_stdout_suppressed
 from mcp_tools.simulation import run_simple_simulation
 from mcp_tools.network import netconvert, netgenerate, osm_get
-from mcp_tools.junctionx import convert_junctionx_network as convert_junctionx_network_summary
+from mcp_tools.ezdesignx import convert_ezdesignx_network as convert_ezdesignx_network_summary
 from mcp_tools.route import random_trips, duarouter, od2trips
 from mcp_tools.signal import tls_cycle_adaptation, tls_coordinator
 from mcp_tools.analysis import analyze_fcd
@@ -140,15 +140,15 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
         if not bbox: return "Error: bbox required for download_osm action"
         return osm_get(bbox, output_file, prefix, options)
 
-    elif action == "convert_junctionx":
+    elif action == "convert_ezdesignx":
         input_json = params.get("input_json")
         if not input_json:
-            return "Error: input_json required for convert_junctionx action"
+            return "Error: input_json required for convert_ezdesignx action"
         validation = str(params.get("validation", "topology"))
         netconvert_bin = params.get("netconvert_bin")
         sumo_bin = params.get("sumo_bin")
         sumo_gui_bin = params.get("sumo_gui_bin")
-        return convert_junctionx_network_summary(
+        return convert_ezdesignx_network_summary(
             input_json=str(input_json),
             output_dir=output_file,
             validation=validation,
@@ -160,8 +160,8 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
     return f"Unknown action: {action}"
 
 
-@server.tool(description="Convert a JunctionX JSON intersection file into SUMO network artifacts.")
-def convert_junctionx_network(
+@server.tool(description="Convert an ezdesignX v1 JSON or JSONC intersection file into SUMO network artifacts.")
+def convert_ezdesignx_network(
     input_json: str,
     output_dir: str,
     validation: str = "topology",
@@ -169,7 +169,7 @@ def convert_junctionx_network(
     sumo_bin: Optional[str] = None,
     sumo_gui_bin: Optional[str] = None,
 ) -> str:
-    return convert_junctionx_network_summary(
+    return convert_ezdesignx_network_summary(
         input_json=input_json,
         output_dir=output_dir,
         validation=validation,

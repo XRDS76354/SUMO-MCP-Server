@@ -1,7 +1,7 @@
-"""JunctionX JSON to SUMO conversion utilities for SUMO-MCP.
+"""ezdesignX JSON to SUMO conversion utilities for SUMO-MCP.
 
 This module is intentionally self-contained so the MCP server can keep working
-after the original ``junctionx_to_sumo`` development directory is removed.
+without relying on the original development directory under ``test/``.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def sanitize_identifier(value: str, fallback: str = "id") -> str:
     return cleaned or fallback
 
 
-def sanitize_filename(value: str, fallback: str = "junctionx") -> str:
+def sanitize_filename(value: str, fallback: str = "ezdesignx") -> str:
     cleaned = re.sub(r"[\\/]+", "_", value or "").strip()
     return cleaned or fallback
 
@@ -50,7 +50,7 @@ def normalize_angle(angle_deg: float) -> float:
     return float(angle_deg) % 360.0
 
 
-def junctionx_angle_to_sumo_angle(angle_deg: float) -> float:
+def ezdesignx_angle_to_sumo_angle(angle_deg: float) -> float:
     return normalize_angle(-float(angle_deg))
 
 
@@ -126,6 +126,21 @@ def run_command(command: Sequence[str], cwd: Optional[Path] = None) -> subproces
     )
 
 
+def _strip_jsonc_comments(text: str) -> str:
+    text = re.sub(r"^\ufeff", "", text)
+    text = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    text = re.sub(r"(^|[^:])//.*$", r"\1", text, flags=re.MULTILINE)
+    return text
+
+
+def load_json_like(path: Path) -> Dict[str, object]:
+    raw_text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        return json.loads(_strip_jsonc_comments(raw_text))
+
+
 @dataclass
 class ReportItem:
     path: str
@@ -138,6 +153,9 @@ class ReportCollector:
         self.mapped: List[ReportItem] = []
         self.approximated: List[ReportItem] = []
         self.filtered: List[ReportItem] = []
+        self.consumed_features: Set[str] = set()
+        self.approximated_features: Set[str] = set()
+        self.unsupported_features: Set[str] = set()
 
     def add_mapped(self, path: str, message: str, **details: object) -> None:
         self.mapped.append(ReportItem(path=path, message=message, details=details))
@@ -148,11 +166,23 @@ class ReportCollector:
     def add_filtered(self, path: str, message: str, **details: object) -> None:
         self.filtered.append(ReportItem(path=path, message=message, details=details))
 
+    def note_consumed(self, feature: str) -> None:
+        self.consumed_features.add(feature)
+
+    def note_approximated(self, feature: str) -> None:
+        self.approximated_features.add(feature)
+
+    def note_unsupported(self, feature: str) -> None:
+        self.unsupported_features.add(feature)
+
     def as_dict(self) -> Dict[str, object]:
         return {
             "mapped": [asdict(item) for item in self.mapped],
             "approximated": [asdict(item) for item in self.approximated],
             "filtered": [asdict(item) for item in self.filtered],
+            "consumedFeatures": sorted(self.consumed_features),
+            "approximatedFeatures": sorted(self.approximated_features),
+            "unsupportedButSeenFeatures": sorted(self.unsupported_features),
         }
 
 
@@ -215,6 +245,7 @@ class RoadSpec:
 class NormalizedConfig:
     source_id: str
     name: str
+    schema_kind: str
     rotation_deg: float
     scale: float
     driving_side: str
@@ -351,6 +382,66 @@ def _lane_speed_and_access(lane_type: str) -> Tuple[float, Optional[str], Option
     return (DEFAULT_MOTOR_SPEED, None, None)
 
 
+def _normalize_lane_type(raw_lane_type: Optional[str]) -> str:
+    value = str(raw_lane_type or "motor").strip()
+    normalized = value.lower()
+    if normalized in {"motor", "vehicle"}:
+        return "motor"
+    if normalized in {"nonmotor", "non-motor", "bicycle", "bike"}:
+        return "non-motor"
+    if normalized in {"pedestrian", "sidewalk"}:
+        return "pedestrian"
+    if normalized in {"greenbelt", "green_belt"}:
+        return "greenBelt"
+    return value or "motor"
+
+
+def _classify_marking_turn_type(raw_type: object) -> Optional[str]:
+    text = str(raw_type or "")
+    if not text:
+        return None
+    normalized = text.strip().lower().replace("_", "-")
+    if normalized in {"left", "right", "straight", "straight-left", "straight-right"}:
+        return normalized
+    has_left = "左" in text
+    has_right = "右" in text
+    has_straight = "直" in text
+    if has_straight and has_left:
+        return "straight-left"
+    if has_straight and has_right:
+        return "straight-right"
+    if has_left:
+        return "left"
+    if has_right:
+        return "right"
+    if has_straight:
+        return "straight"
+    return None
+
+
+def _legacy_arrows_from_centerline(raw_lane: Dict[str, object], report: ReportCollector, path: str) -> List[Dict[str, str]]:
+    centerline = raw_lane.get("centerline") or {}
+    if not isinstance(centerline, dict):
+        return []
+    if centerline.get("startCap"):
+        report.add_filtered(f"{path}.centerline.startCap", "基础适配版忽略 lane centerline.startCap")
+        report.note_unsupported("lane.centerline.startCap")
+    arrows: List[Dict[str, str]] = []
+    for region in centerline.get("regions") or []:
+        if not isinstance(region, dict):
+            continue
+        for marking in region.get("markings") or []:
+            if not isinstance(marking, dict):
+                continue
+            turn_type = _classify_marking_turn_type(marking.get("type"))
+            if turn_type and {"type": turn_type} not in arrows:
+                arrows.append({"type": turn_type})
+    if arrows:
+        report.add_approx(path, "centerline.markings 已降维为旧 arrows", arrows=[item["type"] for item in arrows])
+        report.note_approximated("lane.centerline.markings")
+    return arrows
+
+
 def _normalize_lane(raw_lane: object, lane_index: int, path: str, report: ReportCollector) -> LaneSpec:
     if isinstance(raw_lane, (float, int)):
         report.add_approx(path, "数值车道按机动车车道处理", width=float(raw_lane))
@@ -358,9 +449,9 @@ def _normalize_lane(raw_lane: object, lane_index: int, path: str, report: Report
         width = float(raw_lane)
         arrows: Tuple[str, ...] = tuple()
     elif isinstance(raw_lane, dict):
-        lane_type = str(raw_lane.get("laneType") or "motor")
+        lane_type = _normalize_lane_type(raw_lane.get("laneType"))  # type: ignore[arg-type]
         width = float(raw_lane.get("width") or 3.5)
-        raw_arrows = raw_lane.get("arrows") or []
+        raw_arrows = raw_lane.get("arrows") or _legacy_arrows_from_centerline(raw_lane, report, path)
         arrows = tuple(
             str(item.get("type") or "straight")
             for item in raw_arrows
@@ -595,9 +686,260 @@ def _infer_transition_lanes(
     return inferred_lanes
 
 
+def _point_from_raw(raw_point: object) -> Optional[Point]:
+    if not isinstance(raw_point, dict):
+        return None
+    try:
+        return (float(raw_point.get("x") or 0.0), float(raw_point.get("y") or 0.0))
+    except (TypeError, ValueError):
+        return None
+
+
+def _straight_segment_length(raw_segment: Dict[str, object]) -> Optional[float]:
+    start = _point_from_raw(raw_segment.get("start"))
+    end = _point_from_raw(raw_segment.get("end"))
+    if start is None or end is None:
+        return None
+    return point_length(point_sub(end, start))
+
+
+def _segment_chord_angle(raw_segment: Dict[str, object]) -> Optional[float]:
+    start = _point_from_raw(raw_segment.get("start"))
+    end = _point_from_raw(raw_segment.get("end"))
+    if start is None or end is None:
+        return None
+    vector = point_sub(end, start)
+    if point_length(vector) <= EPSILON:
+        return None
+    return normalize_angle(math.degrees(math.atan2(vector[1], vector[0])))
+
+
+def _signed_angle_delta(target: float, base: float) -> float:
+    return ((target - base + 180.0) % 360.0) - 180.0
+
+
+def _first_segment_with_points(raw_segments: Sequence[Dict[str, object]]) -> Optional[Dict[str, object]]:
+    for raw_segment in raw_segments:
+        if _point_from_raw(raw_segment.get("start")) is not None and _point_from_raw(raw_segment.get("end")) is not None:
+            return raw_segment
+    return None
+
+
+def _infer_median_width(incoming_segments: Sequence[Dict[str, object]], outgoing_segments: Sequence[Dict[str, object]]) -> float:
+    incoming = _first_segment_with_points(incoming_segments)
+    outgoing = _first_segment_with_points(outgoing_segments)
+    if not incoming or not outgoing:
+        return 0.0
+    incoming_start = _point_from_raw(incoming.get("start"))
+    outgoing_start = _point_from_raw(outgoing.get("start"))
+    if incoming_start is None or outgoing_start is None:
+        return 0.0
+    incoming_width = sum(
+        float(lane.get("width") or 3.5)
+        for lane in incoming.get("lanes") or []
+        if isinstance(lane, dict)
+    )
+    outgoing_width = sum(
+        float(lane.get("width") or 3.5)
+        for lane in outgoing.get("lanes") or []
+        if isinstance(lane, dict)
+    )
+    center_distance = point_length(point_sub(incoming_start, outgoing_start))
+    return max(0.0, center_distance - incoming_width / 2.0 - outgoing_width / 2.0)
+
+
+def _adapt_v1_segment(
+    raw_segment: Dict[str, object],
+    path: str,
+    report: ReportCollector,
+) -> Dict[str, object]:
+    adapted = dict(raw_segment)
+    if raw_segment.get("length") is None:
+        length = _straight_segment_length(raw_segment)
+        if length is not None:
+            adapted["length"] = length
+            shape_kind = str(raw_segment.get("shape") or "line")
+            if shape_kind == "cubicBezier":
+                report.add_approx(path, "cubicBezier 在基础适配版中按 start/end 弦长降维为直线长度", length=length)
+                report.note_approximated("segment.shape.cubicBezier")
+            elif shape_kind:
+                report.add_approx(path, "segment.start/end 已降维为旧核心 length", shape=shape_kind, length=length)
+                report.note_approximated("segment.shape.line")
+    if raw_segment.get("centerline"):
+        report.add_filtered(f"{path}.centerline", "基础适配版忽略 segment centerline")
+        report.note_unsupported("segment.centerline")
+    return adapted
+
+
+def _fill_transition_lengths(
+    segments: List[Dict[str, object]],
+    path_prefix: str,
+    report: ReportCollector,
+) -> None:
+    for segment_index, segment in enumerate(segments):
+        if segment.get("length") is not None:
+            continue
+        if str(segment.get("type") or "") != "transition":
+            continue
+        previous_segment = segments[segment_index - 1] if segment_index > 0 else None
+        next_segment = segments[segment_index + 1] if segment_index + 1 < len(segments) else None
+        previous_end = _point_from_raw(previous_segment.get("end")) if previous_segment else None
+        next_start = _point_from_raw(next_segment.get("start")) if next_segment else None
+        if previous_end is None or next_start is None:
+            continue
+        length = point_length(point_sub(next_start, previous_end))
+        if length <= EPSILON:
+            continue
+        segment["length"] = length
+        report.add_approx(
+            f"{path_prefix}[{segment_index}]",
+            "transition 缺少 start/end，按前段 end 到后段 start 的距离降维为旧 length",
+            length=length,
+        )
+        report.note_approximated("transition.length.inferred")
+
+
+def _apply_v1_geometry_angles(
+    road: Dict[str, object],
+    raw_road: Dict[str, object],
+    incoming_segments: Sequence[Dict[str, object]],
+    outgoing_segments: Sequence[Dict[str, object]],
+    path: str,
+    report: ReportCollector,
+) -> None:
+    incoming_source = _first_segment_with_points(incoming_segments)
+    outgoing_source = _first_segment_with_points(outgoing_segments)
+    incoming_angle = _segment_chord_angle(incoming_source) if incoming_source else None
+    outgoing_angle = _segment_chord_angle(outgoing_source) if outgoing_source else None
+    inferred_angle = outgoing_angle if outgoing_angle is not None else incoming_angle
+    if inferred_angle is None:
+        return
+
+    raw_angle = float(raw_road.get("angle") or 0.0)
+    road["angle"] = inferred_angle
+    delta = abs(_signed_angle_delta(inferred_angle, raw_angle))
+    if delta > 0.5:
+        report.add_approx(
+            f"{path}.angle",
+            "road.angle 已按首个显式 segment start/end 反推修正",
+            rawAngle=raw_angle,
+            inferredAngle=inferred_angle,
+            delta=delta,
+            source="outgoingSegments" if outgoing_angle is not None else "incomingSegments",
+        )
+        report.note_approximated("road.angle.fromSegmentGeometry")
+    else:
+        report.add_mapped(
+            f"{path}.angle",
+            "road.angle 与显式 segment 几何一致",
+            angle=inferred_angle,
+            source="outgoingSegments" if outgoing_angle is not None else "incomingSegments",
+        )
+
+    if incoming_angle is not None and outgoing_angle is not None:
+        skew = _signed_angle_delta(incoming_angle, inferred_angle)
+        if abs(skew) > 0.5:
+            road["incomingSkewAngle"] = skew
+            report.add_approx(
+                f"{path}.incomingSkewAngle",
+                "incoming/outgoing 显式几何角度不同，降维为旧核心 incomingSkewAngle",
+                incomingAngle=incoming_angle,
+                outgoingAngle=inferred_angle,
+                skewAngle=skew,
+            )
+            report.note_approximated("road.incomingSkewAngle.fromSegmentGeometry")
+        elif raw_road.get("incomingSkewAngle") is not None:
+            road["incomingSkewAngle"] = raw_road.get("incomingSkewAngle")
+
+
+def _adapt_v1_config(raw: Dict[str, object], report: ReportCollector) -> Dict[str, object]:
+    adapted = dict(raw)
+    adapted_roads: List[Dict[str, object]] = []
+    report.note_consumed("schema.v1")
+    report.note_consumed("road.angle")
+    report.note_consumed("segment.startEndChordLength")
+    report.note_consumed("lane.width")
+    report.note_consumed("lane.laneType")
+
+    for road_index, raw_road_obj in enumerate(raw.get("roads") or []):
+        if not isinstance(raw_road_obj, dict):
+            continue
+        path = f"roads[{road_index}]"
+        raw_road = raw_road_obj
+        road = dict(raw_road)
+        incoming_segments = [
+            _adapt_v1_segment(segment, f"{path}.incomingSegments[{segment_index}]", report)
+            for segment_index, segment in enumerate(raw_road.get("incomingSegments") or [])
+            if isinstance(segment, dict)
+        ]
+        outgoing_segments = [
+            _adapt_v1_segment(segment, f"{path}.outgoingSegments[{segment_index}]", report)
+            for segment_index, segment in enumerate(raw_road.get("outgoingSegments") or [])
+            if isinstance(segment, dict)
+        ]
+        _fill_transition_lengths(incoming_segments, f"{path}.incomingSegments", report)
+        _fill_transition_lengths(outgoing_segments, f"{path}.outgoingSegments", report)
+        road["incomingSegments"] = incoming_segments
+        road["outgoingSegments"] = outgoing_segments
+        road["offset"] = float(raw_road.get("offset") or 0.0)
+        _apply_v1_geometry_angles(road, raw_road, incoming_segments, outgoing_segments, path, report)
+
+        if incoming_segments and raw_road.get("incomingStopLineDistance") is None:
+            stop_distance = incoming_segments[0].get("stopLineDistance")
+            if stop_distance is not None:
+                road["incomingStopLineDistance"] = stop_distance
+                report.add_mapped(f"{path}.incomingSegments[0].stopLineDistance", "降维为旧 incomingStopLineDistance", distance=stop_distance)
+                report.note_consumed("segment.stopLineDistance")
+        if outgoing_segments and raw_road.get("outgoingStopLineDistance") is None:
+            stop_distance = outgoing_segments[0].get("stopLineDistance")
+            if stop_distance is not None:
+                road["outgoingStopLineDistance"] = stop_distance
+                report.add_mapped(f"{path}.outgoingSegments[0].stopLineDistance", "降维为旧 outgoingStopLineDistance", distance=stop_distance)
+                report.note_consumed("segment.stopLineDistance")
+
+        raw_median = raw_road.get("median") if isinstance(raw_road.get("median"), dict) else {}
+        median = dict(raw_median or {})
+        centerline = median.get("centerline") if isinstance(median.get("centerline"), dict) else {}
+        if centerline:
+            if centerline.get("splits") or centerline.get("regions"):
+                report.add_filtered(f"{path}.median.centerline", "基础适配版仅保留简单矩形中分带，忽略 splits/regions")
+                report.note_unsupported("median.centerline.splits")
+            start_cap = centerline.get("startCap") if isinstance(centerline.get("startCap"), dict) else {}
+            if median.get("extensionDistance") is None and isinstance(start_cap, dict) and start_cap.get("extensionDistance") is not None:
+                median["extensionDistance"] = start_cap.get("extensionDistance")
+            if median.get("cornerRadius") is None and isinstance(start_cap, dict) and start_cap.get("cornerRadius") is not None:
+                median["cornerRadius"] = start_cap.get("cornerRadius")
+            report.note_approximated("median.centerline.simpleRectangle")
+        if median.get("width") is None:
+            median["width"] = _infer_median_width(incoming_segments, outgoing_segments)
+            report.add_approx(f"{path}.median.width", "由 incoming/outgoing 首段 start 点中心距反推简单中分带宽度", width=median["width"])
+            report.note_approximated("median.width.inferred")
+        road["median"] = median
+
+        if raw_road.get("laneArrows"):
+            report.add_filtered(f"{path}.laneArrows", "基础适配版不恢复 road laneArrows")
+            report.note_unsupported("road.laneArrows")
+        adapted_roads.append(road)
+
+    if raw.get("crosswalks"):
+        report.add_filtered("crosswalks", "基础适配版不输出 crosswalk")
+        report.note_unsupported("crosswalks")
+        if any(isinstance(item, dict) and item.get("widthOffset") is not None for item in raw.get("crosswalks") or []):
+            report.note_unsupported("crosswalk.widthOffset")
+
+    adapted["roads"] = adapted_roads
+    adapted["crosswalks"] = list(raw.get("crosswalks") or [])
+    return adapted
+
+
 def load_and_normalize(input_path: Path, report: Optional[ReportCollector] = None) -> Tuple[NormalizedConfig, ReportCollector]:
     collector = report or ReportCollector()
-    raw = json.loads(input_path.read_text(encoding="utf-8"))
+    raw = load_json_like(input_path)
+    schema_version = raw.get("schemaVersion")
+    if schema_version != 1:
+        raise ValueError(f"不支持的 schemaVersion={schema_version!r}；基础适配版只支持 ezdesignX v1")
+    schema_kind = "ezdesignx.config.v1"
+    raw = _adapt_v1_config(raw, collector)
 
     source_id = str(raw.get("id") or input_path.stem)
     name = str(raw.get("name") or input_path.stem)
@@ -625,8 +967,8 @@ def load_and_normalize(input_path: Path, report: Optional[ReportCollector] = Non
         junctionx_incoming_angle_deg = normalize_angle(
             junctionx_angle_deg + float(raw_road.get("incomingSkewAngle") or 0.0)
         )
-        sumo_angle_deg = junctionx_angle_to_sumo_angle(junctionx_angle_deg)
-        sumo_incoming_angle_deg = junctionx_angle_to_sumo_angle(junctionx_incoming_angle_deg)
+        sumo_angle_deg = ezdesignx_angle_to_sumo_angle(junctionx_angle_deg)
+        sumo_incoming_angle_deg = ezdesignx_angle_to_sumo_angle(junctionx_incoming_angle_deg)
         offset = float(raw_road.get("offset") or 0.0) * scale
         median = raw_road.get("median") or {}
         median_width = float(median.get("width", raw_road.get("medianWidth") or 0.0)) * scale
@@ -635,7 +977,7 @@ def load_and_normalize(input_path: Path, report: Optional[ReportCollector] = Non
 
         collector.add_mapped(
             f"{path}.angle",
-            "road angle 以 JunctionX 屏幕坐标记录，写入 SUMO 几何时会做 y 轴翻转",
+            "road angle 以 ezdesignX 屏幕坐标记录，写入 SUMO 几何时会做 y 轴翻转",
             value=junctionx_angle_deg,
             sumoAngle=sumo_angle_deg,
         )
@@ -750,6 +1092,7 @@ def load_and_normalize(input_path: Path, report: Optional[ReportCollector] = Non
     normalized = NormalizedConfig(
         source_id=source_id,
         name=name,
+        schema_kind=schema_kind,
         rotation_deg=rotation_deg,
         scale=scale,
         driving_side=driving_side,
@@ -863,7 +1206,7 @@ def _build_emission_group_ranges(
 
 def _lane_band_map(segment: SegmentSpec) -> Dict[int, Tuple[float, float]]:
     total = _structured_width(segment)
-    # JunctionX lane arrays are ordered from the inner side (near median)
+    # ezdesignX lane arrays are ordered from the inner side (near median)
     # toward the outer curb, so positive offsets track the inner side.
     cursor = total / 2.0
     bands: Dict[int, Tuple[float, float]] = {}
@@ -966,7 +1309,7 @@ def _build_chain(
             name=road.street_name,
             params={
                 "segmentType": grouped_segments[0].type if len(grouped_segments) == 1 else "merged_transition_chain",
-                "junctionxRoadId": road.id,
+                "ezdesignxRoadId": road.id,
                 "direction": direction,
                 "sourceSegmentIds": ",".join(segment.id for segment in grouped_segments),
             },
@@ -1309,7 +1652,7 @@ def _build_additional_shapes(plan: NetworkPlan, report: ReportCollector) -> Tupl
                     polys.append(
                         PolyDef(
                             id=f"poly_{road.safe_id}_{chain.direction}_{segment_index}_greenbelt_{lane.raw_index}",
-                            poly_type="junctionx.greenBelt",
+                            poly_type="ezdesignx.greenBelt",
                             color="34,139,34",
                             layer=3,
                             fill=True,
@@ -1333,7 +1676,7 @@ def _build_additional_shapes(plan: NetworkPlan, report: ReportCollector) -> Tupl
                     polys.append(
                         PolyDef(
                             id=f"poly_{road.safe_id}_{chain.direction}_stopline",
-                            poly_type="junctionx.stopLine",
+                            poly_type="ezdesignx.stopLine",
                             color="255,255,255",
                             layer=4,
                             fill=True,
@@ -1341,7 +1684,7 @@ def _build_additional_shapes(plan: NetworkPlan, report: ReportCollector) -> Tupl
                         )
                     )
                     report.add_approx(
-                        f"roads[{road.index}].{chain.direction}StopLineDistance",
+                    f"roads[{road.index}].{chain.direction}StopLineDistance",
                         "stopLineDistance 以附加 stop line polygon 近似表达",
                         distance=stop_distance,
                     )
@@ -1365,7 +1708,7 @@ def _build_additional_shapes(plan: NetworkPlan, report: ReportCollector) -> Tupl
             polys.append(
                 PolyDef(
                     id=f"poly_{road.safe_id}_median",
-                    poly_type="junctionx.median",
+                    poly_type="ezdesignx.median",
                     color="180,180,180",
                     layer=2,
                     fill=True,
@@ -1376,7 +1719,7 @@ def _build_additional_shapes(plan: NetworkPlan, report: ReportCollector) -> Tupl
     for crosswalk_index, crosswalk in enumerate(plan.config.crosswalks):
         report.add_filtered(
             f"crosswalks[{crosswalk_index}]",
-            "crosswalk 暂不写入 add.xml；当前 corner anchor / corner curve 在 SUMO 中几何重建不稳定，已按保守策略关闭",
+            "基础适配版不写入 crosswalk；保持旧核心风格，只输出主路网、简单中分带和停止线",
             crosswalkId=str(crosswalk.get("id") or f"crosswalk-{crosswalk_index}"),
             enabled=bool(crosswalk.get("enabled", True)),
         )
@@ -1400,7 +1743,7 @@ def build_network_plan(config: NormalizedConfig, report: ReportCollector) -> Net
 
     joins = [
         JoinDef(
-            id="junctionx_center",
+            id="ezdesignx_center",
             node_ids=[
                 runtime.incoming.inner_node_id
                 for runtime in road_runtimes.values()
@@ -1591,6 +1934,8 @@ def _base_report_dict(config: NormalizedConfig, plan: NetworkPlan, artifacts: Co
         "source": {
             "id": config.source_id,
             "name": config.name,
+            "schemaKind": config.schema_kind,
+            "adapterMode": "legacy-core-minimal-v1",
             "drivingSide": config.driving_side,
             "rotation": config.rotation_deg,
             "scale": config.scale,
@@ -1651,7 +1996,7 @@ def _find_binary(explicit_path: Optional[str], fallback_name: str) -> str:
 
 
 def prepare_artifacts(input_json: Path, output_dir: Path) -> ConversionArtifacts:
-    stem = sanitize_filename(input_json.stem, "junctionx")
+    stem = sanitize_filename(input_json.stem, "ezdesignx")
     output_dir.mkdir(parents=True, exist_ok=True)
     return ConversionArtifacts(
         input_json=input_json,
@@ -1708,7 +2053,7 @@ def run_netconvert(
     return run_command(command, cwd=artifacts.output_dir)
 
 
-def convert_junctionx_json(
+def convert_ezdesignx_json(
     input_json: Path,
     output_dir: Path,
     netconvert_bin: Optional[str] = None,
@@ -1990,7 +2335,7 @@ def _stringify_validation_passed(validation_result: Dict[str, object]) -> str:
     return "yes" if bool(validation_result.get("passed")) else "no"
 
 
-def run_junctionx_conversion(
+def run_ezdesignx_conversion(
     input_json: str | Path,
     output_dir: str | Path,
     validation: str = "topology",
@@ -1998,7 +2343,7 @@ def run_junctionx_conversion(
     sumo_bin: Optional[str] = None,
     sumo_gui_bin: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Run a JunctionX -> SUMO conversion and return a serializable summary."""
+    """Run an ezdesignX -> SUMO conversion and return a serializable summary."""
 
     input_path = Path(input_json).expanduser().resolve()
     output_path = Path(output_dir).expanduser().resolve()
@@ -2011,7 +2356,7 @@ def run_junctionx_conversion(
             f"validation must be one of {', '.join(VALIDATION_LEVELS)}, got {validation!r}"
         )
 
-    config, plan, artifacts, report, netconvert_result = convert_junctionx_json(
+    config, plan, artifacts, report, netconvert_result = convert_ezdesignx_json(
         input_json=input_path,
         output_dir=output_path,
         netconvert_bin=netconvert_bin,
@@ -2025,7 +2370,7 @@ def run_junctionx_conversion(
         sumo_bin=sumo_bin,
         sumo_gui_bin=sumo_gui_bin,
     )
-    finalize_report(
+    report_dict = finalize_report(
         config=config,
         plan=plan,
         artifacts=artifacts,
@@ -2042,6 +2387,8 @@ def run_junctionx_conversion(
         "validation": validation_level,
         "validation_passed": bool(validation_result.get("passed")),
         "netconvert_returncode": netconvert_result.returncode,
+        "schema_kind": report_dict["source"]["schemaKind"],
+        "adapter_mode": report_dict["source"]["adapterMode"],
         "artifacts": {
             "nodes_xml": str(artifacts.nodes_xml),
             "edges_xml": str(artifacts.edges_xml),
@@ -2052,23 +2399,26 @@ def run_junctionx_conversion(
             "report_json": str(artifacts.report_json),
         },
         "validation_result": validation_result,
+        "report": report_dict,
     }
 
 
-def format_junctionx_conversion_summary(result: Dict[str, Any]) -> str:
+def format_ezdesignx_conversion_summary(result: Dict[str, Any]) -> str:
     """Format a user-facing summary string for MCP responses."""
 
     artifacts = result["artifacts"]
     headline = (
-        "JunctionX -> SUMO conversion completed."
+        "ezdesignX -> SUMO conversion completed."
         if result["ok"]
-        else "JunctionX -> SUMO conversion finished with validation issues."
+        else "ezdesignX -> SUMO conversion finished with validation issues."
     )
     return "\n".join(
         [
             headline,
             f"Input file: {result['input_json']}",
             f"Output directory: {result['output_dir']}",
+            f"schemaKind: {result['schema_kind']}",
+            f"adapterMode: {result['adapter_mode']}",
             f"Validation: {result['validation']}",
             f"Validation passed: {_stringify_validation_passed(result['validation_result'])}",
             f"netconvert return code: {result['netconvert_returncode']}",
@@ -2079,7 +2429,7 @@ def format_junctionx_conversion_summary(result: Dict[str, Any]) -> str:
     )
 
 
-def convert_junctionx_network(
+def convert_ezdesignx_network(
     input_json: str,
     output_dir: str,
     validation: str = "topology",
@@ -2090,7 +2440,7 @@ def convert_junctionx_network(
     """High-level wrapper used by MCP tools."""
 
     try:
-        result = run_junctionx_conversion(
+        result = run_ezdesignx_conversion(
             input_json=input_json,
             output_dir=output_dir,
             validation=validation,
@@ -2099,18 +2449,18 @@ def convert_junctionx_network(
             sumo_gui_bin=sumo_gui_bin,
         )
     except Exception as exc:
-        return f"Error converting JunctionX network: {type(exc).__name__}: {exc}"
-    return format_junctionx_conversion_summary(result)
+        return f"Error converting ezdesignX network: {type(exc).__name__}: {exc}"
+    return format_ezdesignx_conversion_summary(result)
 
 
 __all__ = [
     "VALIDATION_LEVELS",
     "build_network_plan",
-    "convert_junctionx_json",
-    "convert_junctionx_network",
+    "convert_ezdesignx_json",
+    "convert_ezdesignx_network",
     "finalize_report",
-    "format_junctionx_conversion_summary",
+    "format_ezdesignx_conversion_summary",
     "load_and_normalize",
-    "run_junctionx_conversion",
+    "run_ezdesignx_conversion",
     "validate_conversion",
 ]

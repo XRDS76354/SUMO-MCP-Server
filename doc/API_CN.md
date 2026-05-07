@@ -39,6 +39,10 @@
 
 为了提供更简洁、符合人类直觉的接口，我们将原有的 20+ 个工具合并为 7 个核心工具。每个工具通过 `action` 或 `method` 参数区分具体操作。
 
+### ezdesignX 转换
+SUMO-MCP 额外提供了将 ezdesignX v1 `JSON` / `JSONC` 转成 SUMO 路网产物的
+专用工具，以及 `manage_network` 下的对应 action。
+
 ## 1. 路网管理 (manage_network)
 
 管理 SUMO 路网文件的生成、转换和下载。
@@ -48,16 +52,31 @@
     *   `action` (string): 操作类型，可选值：
         *   `generate`: 生成抽象路网（Grid/Spider）。
         *   `convert` (或 `convert_osm`): 将 OSM 文件转换为 SUMO 路网。
+        *   `convert_ezdesignx`: 将 ezdesignX v1 JSON/JSONC 转换为 SUMO 产物。
         *   `download_osm`: 从 OpenStreetMap 下载地图数据。
     *   `output_file` (string): 输出文件路径（对于 download_osm 为输出目录）。
     *   `params` (object, optional): 具体操作参数：
         *   `generate`: `{ "grid": bool, "grid_number": int, "spider": bool }`
         *   `convert` / `convert_osm`: `{ "osm_file": string }`
+        *   `convert_ezdesignx`: `{ "input_json": string, "validation": "basic"|"topology"|"strict", "netconvert_bin"?: string, "sumo_bin"?: string, "sumo_gui_bin"?: string }`
         *   `download_osm`: `{ "bbox": "w,s,e,n", "prefix": string }`
         *   `options`: `list[string]`，追加到底层命令的额外参数（见“通用约定”）
 
 **说明**：
 * `generate` 时 `spider=true` 会覆盖 `grid/grid_number`（强制生成 Spider 网络）；如需更多 Spider 参数请通过 `params.options` 透传 `netgenerate` 命令行选项。
+
+### 专用 ezdesignX 工具 (`convert_ezdesignx_network`)
+
+*   **工具名**: `convert_ezdesignx_network`
+*   **参数**:
+    *   `input_json` (string): ezdesignX v1 `JSON` 或 `JSONC` 文件路径
+    *   `output_dir` (string): 输出目录
+    *   `validation` (string, optional): `basic`、`topology` 或 `strict`
+    *   `netconvert_bin` (string, optional)
+    *   `sumo_bin` (string, optional)
+    *   `sumo_gui_bin` (string, optional)
+*   **返回**:
+    一个包含 `schemaKind`、`adapterMode`、关键输出路径与验证状态的文本摘要
 
 ## 2. 需求管理 (manage_demand)
 
