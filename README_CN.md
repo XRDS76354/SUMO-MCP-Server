@@ -22,6 +22,7 @@ SUMO-MCP 是一个连接大语言模型 (LLM) 与 [Eclipse SUMO](https://www.ecl
 系统支持**离线仿真**（基于文件的工作流）和**在线交互**（实时 TraCI 控制）两种模式，满足从宏观规划到微观控制的多样化需求。
 
 API 参考见 `doc/API_CN.md`（唯一真相源以 `src/server.py` 的工具注册为准）。
+JunctionX 转换说明见 [doc/JUNCTIONX_TO_SUMO_CN.md](doc/JUNCTIONX_TO_SUMO_CN.md)。
 
 ## 🚀 核心功能特性
 
@@ -30,7 +31,7 @@ API 参考见 `doc/API_CN.md`（唯一真相源以 `src/server.py` 的工具注�
 
 ![SUMO-MCP 工具列表](doc/sumo-mcp工具列表.png)
 
-*   **路网管理 (`manage_network`)**: 支持路网生成 (`generate`)、OSM 地图下载 (`download_osm`) 与格式转换 (`convert`)。
+*   **路网管理 (`manage_network`)**: 支持路网生成 (`generate`)、OSM 地图下载 (`download_osm`)、格式转换 (`convert`) 以及 JunctionX JSON 转换 (`convert_junctionx`)；同时提供专用工具 `convert_junctionx_network`。
 *   **需求管理 (`manage_demand`)**: 提供随机行程生成 (`generate_random`)、OD 矩阵转换 (`convert_od`) 和路径计算 (`compute_routes`)。
 *   **信号优化 (`optimize_traffic_signals`)**: 集成周期自适应 (`cycle_adaptation`) 和绿波协调 (`coordination`) 算法；其中 `cycle_adaptation` 输出为 SUMO `<additional>` 信号方案文件（由工作流自动挂载到 `<additional-files>`）。
 *   **仿真与分析**: 支持标准配置文件仿真 (`run_simple_simulation`) 与 FCD 轨迹数据分析 (`run_analysis`)。
