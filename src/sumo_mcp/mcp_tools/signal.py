@@ -3,9 +3,9 @@ import subprocess
 import sys
 from typing import Optional, List
 
-from utils.sumo import build_sumo_diagnostics, find_sumo_tool_script
-from utils.output import truncate_text
-from utils.timeout import subprocess_run_with_timeout
+from sumo_mcp.utils.sumo import build_sumo_diagnostics, find_sumo_tool_script
+from sumo_mcp.utils.output import truncate_text
+from sumo_mcp.utils.timeout import subprocess_run_with_timeout
 
 
 def _sum_files_bytes(files_csv: str) -> int:

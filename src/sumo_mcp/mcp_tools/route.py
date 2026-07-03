@@ -4,9 +4,9 @@ import os
 import sys
 from typing import Optional, List
 
-from utils.sumo import build_sumo_diagnostics, find_sumo_tool_script
-from utils.output import truncate_text
-from utils.timeout import subprocess_run_with_timeout
+from sumo_mcp.utils.sumo import build_sumo_diagnostics, find_sumo_tool_script
+from sumo_mcp.utils.output import truncate_text
+from sumo_mcp.utils.timeout import subprocess_run_with_timeout
 
 def random_trips(net_file: str, output_file: str, end_time: int = 3600, period: float = 1.0, options: Optional[List[str]] = None) -> str:
     """

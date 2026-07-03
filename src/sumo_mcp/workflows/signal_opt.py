@@ -5,9 +5,9 @@ import logging
 from filecmp import cmp
 from typing import List, Optional
 
-from mcp_tools.simulation import run_simple_simulation
-from mcp_tools.signal import tls_cycle_adaptation, tls_coordinator
-from mcp_tools.analysis import analyze_fcd
+from sumo_mcp.mcp_tools.simulation import run_simple_simulation
+from sumo_mcp.mcp_tools.signal import tls_cycle_adaptation, tls_coordinator
+from sumo_mcp.mcp_tools.analysis import analyze_fcd
 
 logger = logging.getLogger(__name__)
 

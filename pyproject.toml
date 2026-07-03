@@ -1,11 +1,11 @@
 [project]
 name = "sumo-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "SUMO-MCP: Autonomous Traffic Simulation Platform with Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp[cli]>=1.0.0",
+    "mcp[cli]>=1.2.0",
     "sumolib>=1.20.0",
     "traci>=1.20.0",
     "sumo-rl>=1.4.3",
@@ -13,7 +13,23 @@ dependencies = [
     "requests>=2.31.0"
 ]
 
+[project.scripts]
+sumo-mcp = "sumo_mcp.server:main"
+
 [project.optional-dependencies]
+# Advanced RL algorithms (DQN/PPO/A2C single-agent, PettingZoo multi-agent).
+# Baseline Q-Learning via sumo-rl works without these extras.
+rl = [
+    "stable-baselines3>=2.3.0",
+    "torch>=2.0.0",
+    "tensorboard>=2.15.0",
+    "supersuit>=3.9.0",
+    "pettingzoo>=1.24.0",
+]
+# Distributed / large-scale RL. Linux/macOS focused; limited Windows support.
+rllib = [
+    "ray[rllib]>=2.9.0",
+]
 dev = [
     "mypy>=1.8.0",
     "flake8>=7.0.0",
@@ -50,7 +66,19 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+markers = [
+    "requires_sumo: needs a working SUMO installation (binaries + SUMO_HOME)",
+    "requires_rl: needs the [rl] extras (stable-baselines3, torch)",
+    "network: needs outbound internet access (e.g. OSM download); skipped by default in CI",
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
-sources = ["src"]
+packages = ["src/sumo_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/sumo_mcp",
+    "src/server.py",
+    "README.md",
+    "LICENSE",
+]

@@ -6,7 +6,7 @@ from typing import Callable, Optional, TypeVar
 
 import traci
 
-from utils.sumo import find_sumo_binary
+from sumo_mcp.utils.sumo import find_sumo_binary
 
 logger = logging.getLogger(__name__)
 

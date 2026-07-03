@@ -1,6 +1,6 @@
 import traci
 from typing import List, Tuple
-from utils.connection import connection_manager
+from sumo_mcp.utils.connection import connection_manager
 
 def get_vehicles() -> List[str]:
     """Get the list of all active vehicle IDs."""

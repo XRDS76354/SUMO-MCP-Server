@@ -1,8 +1,8 @@
 import os
-from mcp_tools.network import netgenerate
-from mcp_tools.route import random_trips, duarouter
-from mcp_tools.simulation import run_simple_simulation
-from mcp_tools.analysis import analyze_fcd
+from sumo_mcp.mcp_tools.network import netgenerate
+from sumo_mcp.mcp_tools.route import random_trips, duarouter
+from sumo_mcp.mcp_tools.simulation import run_simple_simulation
+from sumo_mcp.mcp_tools.analysis import analyze_fcd
 
 def sim_gen_workflow(output_dir: str, grid_number: int = 3, steps: int = 100) -> str:
     """

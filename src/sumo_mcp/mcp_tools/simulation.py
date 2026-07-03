@@ -3,9 +3,9 @@ import logging
 import subprocess
 import traci
 
-from utils.sumo import build_sumo_diagnostics, find_sumo_binary
-from utils.timeout import run_with_adaptive_timeout
-from utils.traci import traci_close_best_effort
+from sumo_mcp.utils.sumo import build_sumo_diagnostics, find_sumo_binary
+from sumo_mcp.utils.timeout import run_with_adaptive_timeout
+from sumo_mcp.utils.traci import traci_close_best_effort
 
 logger = logging.getLogger(__name__)
 

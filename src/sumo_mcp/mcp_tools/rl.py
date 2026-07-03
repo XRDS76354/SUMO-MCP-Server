@@ -5,7 +5,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 
-from utils.traci import ensure_traci_start_stdout_suppressed
+from sumo_mcp.utils.traci import ensure_traci_start_stdout_suppressed
 
 # NOTE:
 # `sumo_rl` will raise an ImportError at import-time if `SUMO_HOME` is not set.

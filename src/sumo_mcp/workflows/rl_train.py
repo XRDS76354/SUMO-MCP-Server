@@ -1,4 +1,4 @@
-from mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
+from sumo_mcp.mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
 
 def rl_train_workflow(
     scenario_name: str,
