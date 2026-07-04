@@ -91,3 +91,44 @@ def test_stdio_initialize_and_tools_list(launch: list[str]) -> None:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+
+def test_server_exits_cleanly_on_stdin_eof() -> None:
+    """codex-review regression: MCP hosts expect the stdio server to exit on
+    client disconnect. Close stdin after the handshake and require a clean,
+    unforced process exit (no terminate())."""
+    import os
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "sumo_mcp"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        env=env,
+        cwd=str(ROOT),
+    )
+    try:
+        _rpc(proc, {
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "0"},
+            },
+        })
+        _read_response(proc)
+
+        assert proc.stdin is not None
+        proc.stdin.close()
+
+        returncode = proc.wait(timeout=20)
+        assert returncode == 0, f"server exited with {returncode} after stdin EOF"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=10)
+            pytest.fail("server did not exit after stdin EOF (orphan process)")

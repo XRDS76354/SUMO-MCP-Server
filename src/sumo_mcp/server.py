@@ -542,6 +542,9 @@ def main() -> None:
         async with anyio.create_task_group() as tg:
             tg.start_soon(_wakeup_task)
             await server.run_stdio_async()
+            # run_stdio_async() returns on client disconnect (stdin EOF); the
+            # wakeup task loops forever, so cancel it or the process never exits.
+            tg.cancel_scope.cancel()
 
     anyio.run(_run_stdio_with_wakeup)
 

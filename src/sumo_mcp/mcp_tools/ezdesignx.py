@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -1993,6 +1994,22 @@ def _find_binary(explicit_path: Optional[str], fallback_name: str) -> str:
     discovered = shutil.which(fallback_name)
     if discovered:
         return discovered
+    # SUMO_HOME-only installs (macOS framework, pip eclipse-sumo without PATH
+    # wrappers) don't expose bin/ on PATH; align with the package-wide resolver.
+    try:
+        from sumo_mcp.utils.sumo import find_sumo_binary
+
+        resolved = find_sumo_binary(fallback_name)
+        if resolved:
+            return resolved
+    except Exception:
+        pass
+    sumo_home = os.environ.get("SUMO_HOME")
+    if sumo_home:
+        for suffix in ("", ".exe"):
+            candidate = Path(sumo_home) / "bin" / f"{fallback_name}{suffix}"
+            if candidate.is_file():
+                return str(candidate)
     raise FileNotFoundError(f"无法找到 {fallback_name}，请通过命令行参数显式传入")
 
 

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
 
 from sumo_mcp.mcp_tools.ezdesignx import convert_ezdesignx_json, run_ezdesignx_conversion
+from sumo_mcp.utils.sumo import find_sumo_binary
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "ezdesignx"
 FOUR_WAY_SAMPLE = FIXTURE_DIR / "four_way_v1.json"
 SIX_WAY_SAMPLE = FIXTURE_DIR / "six_way_v1.json"
-SUMO_AVAILABLE = bool(shutil.which("netconvert") and shutil.which("sumo"))
+# Same resolver as production (_find_binary) and conftest: honors SUMO_HOME-only
+# installs where bin/ is not on PATH.
+SUMO_AVAILABLE = bool(find_sumo_binary("netconvert") and find_sumo_binary("sumo"))
 
 pytestmark = [
     pytest.mark.requires_sumo,

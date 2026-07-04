@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
 
 from sumo_mcp.mcp_tools.ezdesignx import run_ezdesignx_conversion
+from sumo_mcp.utils.sumo import find_sumo_binary
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "ezdesignx"
@@ -14,7 +14,7 @@ MIN_TRANSITION_FIXTURE = FIXTURE_DIR / "min_transition_fixture.json"
 
 @pytest.mark.requires_sumo
 @pytest.mark.skipif(
-    not (shutil.which("netconvert") and shutil.which("sumo")),
+    not (find_sumo_binary("netconvert") and find_sumo_binary("sumo")),
     reason="requires local netconvert and sumo",
 )
 def test_strict_conversion_reports_metrics(tmp_path: Path) -> None:
