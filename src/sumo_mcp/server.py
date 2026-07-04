@@ -12,7 +12,7 @@ from sumo_mcp.mcp_tools.route import random_trips, duarouter, od2trips
 from sumo_mcp.mcp_tools.signal import tls_cycle_adaptation, tls_coordinator
 from sumo_mcp.mcp_tools.analysis import analyze_fcd
 from sumo_mcp.mcp_tools.vehicle import (
-    get_vehicles, get_vehicle_speed, get_vehicle_position, 
+    get_vehicles, get_vehicle_speed, get_vehicle_position,
     get_vehicle_acceleration, get_vehicle_lane, get_vehicle_route,
     get_simulation_info
 )
@@ -34,6 +34,8 @@ ensure_traci_start_stdout_suppressed()
 server = FastMCP("SUMO-MCP-Server")
 
 # --- 1. Network Management ---
+
+
 @server.tool(description="Manage SUMO network (generate, convert, or download OSM).")
 def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -44,7 +46,7 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
     """
     params = params or {}
     options = params.get("options")
-    
+
     if action == "generate":
         spider = bool(params.get("spider", False))
         grid = bool(params.get("grid", True))
@@ -127,17 +129,19 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
             options = options_list
 
         return netgenerate(output_file, grid, grid_number, options)
-        
+
     elif action == "convert" or action == "convert_osm":
         osm_file = params.get("osm_file")
-        if not osm_file: return "Error: osm_file required for convert action"
+        if not osm_file:
+            return "Error: osm_file required for convert action"
         return netconvert(osm_file, output_file, options)
-        
+
     elif action == "download_osm":
         # output_file here acts as output_dir
         bbox = params.get("bbox")
         prefix = params.get("prefix", "osm")
-        if not bbox: return "Error: bbox required for download_osm action"
+        if not bbox:
+            return "Error: bbox required for download_osm action"
         return osm_get(bbox, output_file, prefix, options)
 
     elif action == "convert_ezdesignx":
@@ -156,7 +160,7 @@ def manage_network(action: str, output_file: str, params: Optional[Dict[str, Any
             sumo_bin=str(sumo_bin) if sumo_bin is not None else None,
             sumo_gui_bin=str(sumo_gui_bin) if sumo_gui_bin is not None else None,
         )
-        
+
     return f"Unknown action: {action}"
 
 
@@ -179,6 +183,8 @@ def convert_ezdesignx_network(
     )
 
 # --- 2. Demand Management ---
+
+
 @server.tool(description="Manage traffic demand (random trips, OD matrix, routing).")
 def manage_demand(action: str, net_file: str, output_file: str, params: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -189,7 +195,7 @@ def manage_demand(action: str, net_file: str, output_file: str, params: Optional
     """
     params = params or {}
     options = params.get("options")
-    
+
     if action == "generate_random" or action == "random_trips":
         # Backward/compat aliases: some clients use `end` instead of `end_time`.
         end_time_raw = params.get("end_time", params.get("end", 3600))
@@ -203,20 +209,24 @@ def manage_demand(action: str, net_file: str, output_file: str, params: Optional
         except (TypeError, ValueError):
             return f"Error: period must be a number, got {period_raw!r}"
         return random_trips(net_file, output_file, end_time, period, options)
-        
+
     elif action == "convert_od" or action == "od_matrix":
         od_file = params.get("od_file")
-        if not od_file: return "Error: od_file required for convert_od"
+        if not od_file:
+            return "Error: od_file required for convert_od"
         return od2trips(od_file, output_file, options)
-        
+
     elif action == "compute_routes" or action == "routing":
-        route_files = params.get("route_files") # Input trips file
-        if not route_files: return "Error: route_files required for compute_routes"
+        route_files = params.get("route_files")  # Input trips file
+        if not route_files:
+            return "Error: route_files required for compute_routes"
         return duarouter(net_file, route_files, output_file, options)
-        
+
     return f"Unknown action: {action}"
 
 # --- 3. Simulation Control ---
+
+
 @server.tool(description="Control SUMO simulation (connect, step, disconnect).")
 def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -226,7 +236,7 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
     - disconnect: no params
     """
     params = params or {}
-    
+
     try:
         timeout_s_raw = params.get("timeout_s", params.get("timeout"))
         timeout_s: Optional[float] = None
@@ -246,7 +256,7 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
             else:
                 connection_manager.connect(config_file, gui, port, host, timeout_s=timeout_s)
             return "Successfully connected to SUMO."
-            
+
         elif action == "step":
             step = params.get("step", 0)
             if timeout_s is None:
@@ -254,20 +264,22 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
             else:
                 connection_manager.simulation_step(step, timeout_s=timeout_s)
             return "Simulation advanced."
-            
+
         elif action == "disconnect":
             if timeout_s is None:
                 connection_manager.disconnect()
             else:
                 connection_manager.disconnect(timeout_s=timeout_s)
             return "Successfully disconnected from SUMO."
-            
+
     except Exception as e:
         return f"Error in control_simulation ({action}): {type(e).__name__}: {e}"
-        
+
     return f"Unknown action: {action}"
 
 # --- 4. Query State ---
+
+
 @server.tool(description="Query simulation state (vehicles, speed, position). Requires active connection.")
 def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -276,37 +288,47 @@ def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None)
     - vehicle_variable: params={'vehicle_id': str, 'variable': 'speed'|'position'|'lane'|'acceleration'|'route'}
     """
     params = params or {}
-    
+
     try:
         if target == "vehicle_list" or target == "vehicles":
             vehs = get_vehicles()
             return f"Active vehicles: {vehs}"
-            
+
         elif target == "vehicle_variable":
             v_id = params.get("vehicle_id")
             var = params.get("variable")
-            if not v_id or not var: return "Error: vehicle_id and variable required"
-            
-            if var == "speed": return f"Speed: {get_vehicle_speed(v_id)}"
-            if var == "position": return f"Position: {get_vehicle_position(v_id)}"
-            if var == "acceleration": return f"Acceleration: {get_vehicle_acceleration(v_id)}"
-            if var == "lane": return f"Lane: {get_vehicle_lane(v_id)}"
-            if var == "route": return f"Route: {get_vehicle_route(v_id)}"
-            
+            if not v_id or not var:
+                return "Error: vehicle_id and variable required"
+
+            if var == "speed":
+                return f"Speed: {get_vehicle_speed(v_id)}"
+            if var == "position":
+                return f"Position: {get_vehicle_position(v_id)}"
+            if var == "acceleration":
+                return f"Acceleration: {get_vehicle_acceleration(v_id)}"
+            if var == "lane":
+                return f"Lane: {get_vehicle_lane(v_id)}"
+            if var == "route":
+                return f"Route: {get_vehicle_route(v_id)}"
+
             return f"Unknown variable: {var}"
-        
+
         elif target == "simulation":
             info = get_simulation_info()
             return f"Simulation Info: {info}"
-            
+
     except Exception as e:
         return f"Error querying state: {type(e).__name__}: {e}"
-        
+
     return f"Unknown target: {target}"
 
 # --- 5. Optimize Signals ---
+
+
 @server.tool(description="Optimize traffic signals.")
-def optimize_traffic_signals(method: str, net_file: str, route_file: str, output_file: str, params: Optional[Dict[str, Any]] = None) -> str:
+def optimize_traffic_signals(
+    method: str, net_file: str, route_file: str, output_file: str, params: Optional[Dict[str, Any]] = None
+) -> str:
     """
     methods:
     - cycle_adaptation: adapt TLS cycles
@@ -314,15 +336,17 @@ def optimize_traffic_signals(method: str, net_file: str, route_file: str, output
     """
     params = params or {}
     options = params.get("options")
-    
+
     if method == "cycle_adaptation" or method == "Websters":
         return tls_cycle_adaptation(net_file, route_file, output_file)
     elif method == "coordination":
         return tls_coordinator(net_file, route_file, output_file, options)
-        
+
     return f"Unknown method: {method}"
 
 # --- 6. Workflows ---
+
+
 @server.tool(
     description="""Run high-level SUMO workflows. Available workflows:
 
@@ -390,6 +414,8 @@ def run_workflow(workflow_name: str, params: Dict[str, Any]) -> str:
     return f"Unknown workflow: {workflow_name}. Available: sim_gen_eval, signal_opt, rl_train"
 
 # --- 7. RL Task Management ---
+
+
 @server.tool(description="Manage RL tasks (list scenarios, custom training).")
 def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -398,10 +424,10 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> str:
     - train_custom: params={'net_file', 'route_file', 'out_dir', 'episodes', 'steps', 'algorithm', 'reward_type'}
     """
     params = params or {}
-    
+
     if action == "list_scenarios":
         return str(list_rl_scenarios())
-        
+
     elif action == "train_custom":
         scenario_name = params.get("scenario") or params.get("scenario_name")
         net_file = params.get("net_file")
@@ -450,10 +476,12 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> str:
             algorithm=algorithm,
             reward_type=reward_type,
         )
-        
+
     return f"Unknown action: {action}"
 
 # --- Legacy/Misc ---
+
+
 @server.tool(name="get_sumo_info", description="Get the version and path of the installed SUMO.")
 def get_sumo_info() -> str:
     try:
@@ -486,13 +514,16 @@ def get_sumo_info() -> str:
     except Exception as e:
         return f"Error checking SUMO: {str(e)}"
 
+
 @server.tool(name="run_simple_simulation", description="Run a SUMO simulation using a config file.")
 def run_simple_simulation_tool(config_path: str, steps: int = 100) -> str:
     return run_simple_simulation(config_path, steps)
 
+
 @server.tool(description="Analyze FCD output.")
 def run_analysis(fcd_file: str) -> str:
     return analyze_fcd(fcd_file)
+
 
 def main() -> None:
     """Run the SUMO MCP server on stdio (console-script / ``python -m`` entry point)."""

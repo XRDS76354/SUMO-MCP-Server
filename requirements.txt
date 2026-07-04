@@ -1,5 +1,10 @@
-mcp[cli]
-sumolib
-traci
-sumo-rl
-pandas
+# Convenience mirror of [project.dependencies] in pyproject.toml.
+# Prefer: pip install -e .           (runtime)
+#         pip install -e .[dev]      (development)
+#         pip install -e .[rl]       (advanced RL: SB3/PettingZoo)
+mcp[cli]>=1.2.0
+sumolib>=1.20.0
+traci>=1.20.0
+sumo-rl>=1.4.3
+pandas>=2.0.0
+requests>=2.31.0

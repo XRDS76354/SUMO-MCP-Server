@@ -9,14 +9,15 @@ from sumo_mcp.utils.traci import traci_close_best_effort
 
 logger = logging.getLogger(__name__)
 
+
 def run_simple_simulation(config_path: str, steps: int = 100) -> str:
     """
     Run a SUMO simulation using the given configuration file.
-    
+
     Args:
         config_path: Path to the .sumocfg file.
         steps: Number of simulation steps to run.
-        
+
     Returns:
         A summary string of the simulation execution.
     """
@@ -32,12 +33,12 @@ def run_simple_simulation(config_path: str, steps: int = 100) -> str:
                 "Please ensure SUMO is installed and either `sumo` is available in PATH or `SUMO_HOME` is set.",
             ]
         )
-    
+
     # Start simulation
     # We use a random label to allow parallel runs if needed (though traci global lock is an issue)
     # Ideally use libsumo if available for speed, but traci is safer for now.
     cmd = [sumo_binary, "-c", config_path, "--no-step-log", "true", "--random"]
-    
+
     try:
         def _run() -> str:
             # IMPORTANT: MCP uses stdout for JSON-RPC over stdio.
@@ -63,7 +64,7 @@ def run_simple_simulation(config_path: str, steps: int = 100) -> str:
             )
 
         return run_with_adaptive_timeout(_run, operation="simulation", params={"steps": steps})
-                
+
     except Exception as e:
         closed = traci_close_best_effort()
         if not closed:

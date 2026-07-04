@@ -132,13 +132,14 @@ def create_rl_environment(
         return f"Error: Network file not found at {net_file}"
     if not os.path.exists(route_file):
         return f"Error: Route file not found at {route_file}"
-        
+
     return (f"RL Environment Configuration Valid:\n"
             f"- Net: {net_file}\n"
             f"- Route: {route_file}\n"
             f"- Reward Function: {reward_fn}\n"
             f"- GUI: {use_gui}\n"
             f"- Horizon: {num_seconds} steps")
+
 
 def run_rl_training(
     net_file: str,
@@ -342,7 +343,8 @@ def run_rl_training(
 
                         if len(step_result) == 4:
                             next_obs, rewards, dones, _info = step_result
-                            if not isinstance(next_obs, dict) or not isinstance(rewards, dict) or not isinstance(dones, dict):
+                            if (not isinstance(next_obs, dict) or not isinstance(rewards, dict)
+                                    or not isinstance(dones, dict)):
                                 return "Training failed: Unexpected types returned from sumo-rl step()."
                             done_all = bool(dones.get("__all__", False))
                             if "__all__" not in dones:
@@ -396,7 +398,7 @@ def run_rl_training(
             operation="rl_training",
             params={"episodes": episodes, "steps_per_episode": steps_per_episode},
         )
-            
+
     except Exception as e:
         diagnostics: list[str] = [
             f"Training failed: {type(e).__name__}: {e}",

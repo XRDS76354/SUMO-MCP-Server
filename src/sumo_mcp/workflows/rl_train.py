@@ -1,5 +1,6 @@
 from sumo_mcp.mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
 
+
 def rl_train_workflow(
     scenario_name: str,
     output_dir: str,
@@ -23,7 +24,7 @@ def rl_train_workflow(
     if err:
         available = list_rl_scenarios()
         return f"{err}\nAvailable: {available}"
-        
+
     return run_rl_training(
         net_file=net_file,
         route_file=route_file,

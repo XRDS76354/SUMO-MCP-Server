@@ -23,4 +23,3 @@ def truncate_text(text: str | None, max_chars: int = DEFAULT_MAX_OUTPUT_CHARS) -
         f"... <truncated {truncated} chars; showing last {max_chars} of {original_len}> ...\n"
         f"{tail}"
     )
-

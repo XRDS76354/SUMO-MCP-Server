@@ -12,6 +12,7 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "ezdesignx"
 MIN_TRANSITION_FIXTURE = FIXTURE_DIR / "min_transition_fixture.json"
 
 
+@pytest.mark.requires_sumo
 @pytest.mark.skipif(
     not (shutil.which("netconvert") and shutil.which("sumo")),
     reason="requires local netconvert and sumo",

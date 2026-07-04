@@ -35,9 +35,9 @@ def _copy_to_dir(src_file: str, dst_dir: str) -> str:
 
 
 def signal_opt_workflow(
-    net_file: str, 
-    route_file: str, 
-    output_dir: str, 
+    net_file: str,
+    route_file: str,
+    output_dir: str,
     steps: int = 3600,
     use_coordinator: bool = False
 ) -> str:
@@ -57,24 +57,24 @@ def signal_opt_workflow(
 
     local_net_file = _copy_to_dir(net_file, output_dir)
     local_route_file = _copy_to_dir(route_file, output_dir)
-        
+
     # Baseline paths
     baseline_cfg = os.path.join(output_dir, "baseline.sumocfg")
     baseline_fcd = os.path.join(output_dir, "baseline_fcd.xml")
-    
+
     # Optimized paths
     opt_net_file = os.path.join(output_dir, "optimized.net.xml")
     opt_cfg = os.path.join(output_dir, "optimized.sumocfg")
     opt_fcd = os.path.join(output_dir, "optimized_fcd.xml")
-    
+
     # 1. Run Baseline
     _create_config(baseline_cfg, local_net_file, local_route_file, baseline_fcd, steps)
     res_baseline = run_simple_simulation(baseline_cfg, steps)
     if "error" in res_baseline.lower():
         return f"Baseline Simulation Failed: {res_baseline}"
-        
+
     analysis_baseline = analyze_fcd(baseline_fcd)
-    
+
     # 2. Optimize
     def _is_failure(result: str) -> bool:
         lowered = result.lower()
@@ -111,12 +111,12 @@ def signal_opt_workflow(
             )
             res_opt = "\n\n".join(optimization_notes)
             optimized_net_input = local_net_file
-    
+
     # Check if optimized file is valid and determines if it is a net or additional
     is_additional = False
     if optimized_net_input != local_net_file:
         is_additional = _is_additional_file(opt_net_file)
-    
+
     # 3. Run Optimized
     if is_additional:
         # Use original net + additional file
@@ -131,13 +131,13 @@ def signal_opt_workflow(
     else:
         # Use new net file (or baseline net if optimization was skipped)
         _create_config(opt_cfg, optimized_net_input, local_route_file, opt_fcd, steps)
-        
+
     res_optimized = run_simple_simulation(opt_cfg, steps)
     if "error" in res_optimized.lower():
         return f"Optimized Simulation Failed: {res_optimized}"
-        
+
     analysis_optimized = analyze_fcd(opt_fcd)
-    
+
     return (f"Signal Optimization Workflow Completed.\n\n"
             f"--- Baseline Results ---\n{res_baseline}\n{analysis_baseline}\n\n"
             f"--- Optimization Step ---\n{res_opt}\n\n"
@@ -145,7 +145,8 @@ def signal_opt_workflow(
 
 
 def _is_additional_file(file_path: str) -> bool:
-    if not os.path.exists(file_path): return False
+    if not os.path.exists(file_path):
+        return False
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             head = f.read(1000)
@@ -155,7 +156,10 @@ def _is_additional_file(file_path: str) -> bool:
         return False
 
 
-def _create_config(cfg_path: str, net_file: str, route_file: str, fcd_file: str, steps: int, additional_files: Optional[List[str]] = None) -> None:
+def _create_config(
+    cfg_path: str, net_file: str, route_file: str, fcd_file: str, steps: int,
+    additional_files: Optional[List[str]] = None,
+) -> None:
     cfg_dir = os.path.dirname(os.path.abspath(cfg_path))
 
     def _as_cfg_path(file_path: str) -> str:

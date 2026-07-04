@@ -11,10 +11,11 @@ import math
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 # --- begin embedded core.py ---
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
 
@@ -1684,7 +1685,7 @@ def _build_additional_shapes(plan: NetworkPlan, report: ReportCollector) -> Tupl
                         )
                     )
                     report.add_approx(
-                    f"roads[{road.index}].{chain.direction}StopLineDistance",
+                        f"roads[{road.index}].{chain.direction}StopLineDistance",
                         "stopLineDistance 以附加 stop line polygon 近似表达",
                         distance=stop_distance,
                     )
@@ -2082,28 +2083,12 @@ def finalize_report(
     _write_report_json(report_dict, artifacts.report_json)
     return report_dict
 
+
 # --- begin embedded validator.py ---
-import math
-import shutil
-import xml.etree.ElementTree as ET
-from pathlib import Path
-from typing import Dict, List, Optional, Sequence
-
-
-
 ANGLE_THRESHOLD = 1.0
 LENGTH_ABS_THRESHOLD = 0.5
 LENGTH_REL_THRESHOLD = 0.02
 LANE_WIDTH_THRESHOLD = 0.1
-
-
-def _find_binary(explicit_path: Optional[str], fallback_name: str) -> str:
-    if explicit_path:
-        return explicit_path
-    discovered = shutil.which(fallback_name)
-    if discovered:
-        return discovered
-    raise FileNotFoundError(f"无法找到 {fallback_name}，请通过命令行参数显式传入")
 
 
 def _angular_difference(actual: float, expected: float) -> float:

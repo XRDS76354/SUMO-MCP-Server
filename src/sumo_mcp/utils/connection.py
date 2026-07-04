@@ -46,7 +46,7 @@ class SUMOConnection:
     """
     _instance: Optional['SUMOConnection'] = None
     _connected: bool
-    
+
     def __new__(cls) -> "SUMOConnection":
         if cls._instance is None:
             cls._instance = super(SUMOConnection, cls).__new__(cls)
@@ -94,7 +94,7 @@ class SUMOConnection:
                     timeout_s=timeout_s,
                     description="traci.init",
                 )
-            
+
             self._connected = True
             logger.info("Successfully connected to SUMO.")
         except Exception as e:
@@ -110,7 +110,7 @@ class SUMOConnection:
         """Disconnect from SUMO server."""
         if not self._connected:
             return
-        
+
         try:
             _run_with_timeout(traci.close, timeout_s=timeout_s, description="traci.close")
             logger.info("Disconnected from SUMO.")
@@ -136,10 +136,11 @@ class SUMOConnection:
             except Exception:
                 pass
             raise
-    
+
     def simulation_step(self, step: float = 0, timeout_s: float = DEFAULT_TRACI_TIMEOUT_S) -> None:
         """Advance the simulation."""
         self.traci_call(lambda: traci.simulationStep(step), description="traci.simulationStep", timeout_s=timeout_s)
+
 
 # Global instance
 connection_manager = SUMOConnection()

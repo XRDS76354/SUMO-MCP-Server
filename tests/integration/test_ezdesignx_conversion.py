@@ -13,7 +13,10 @@ FOUR_WAY_SAMPLE = FIXTURE_DIR / "four_way_v1.json"
 SIX_WAY_SAMPLE = FIXTURE_DIR / "six_way_v1.json"
 SUMO_AVAILABLE = bool(shutil.which("netconvert") and shutil.which("sumo"))
 
-pytestmark = pytest.mark.skipif(not SUMO_AVAILABLE, reason="requires local netconvert and sumo")
+pytestmark = [
+    pytest.mark.requires_sumo,
+    pytest.mark.skipif(not SUMO_AVAILABLE, reason="requires local netconvert and sumo"),
+]
 
 
 @pytest.mark.parametrize(

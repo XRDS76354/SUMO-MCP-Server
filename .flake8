@@ -4,3 +4,6 @@ extend-ignore = E203
 exclude = .git,__pycache__,build,dist,venv,.venv,env,.env
 per-file-ignores =
     __init__.py:F401
+    # Self-contained 2400-line converter with long descriptive Chinese report
+    # strings; wrapping them hurts readability more than the long lines do.
+    src/sumo_mcp/mcp_tools/ezdesignx.py:E501

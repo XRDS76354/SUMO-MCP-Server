@@ -27,6 +27,7 @@ def _file_size_bytes(path: str) -> int:
     except OSError:
         return 0
 
+
 def tls_cycle_adaptation(net_file: str, route_files: str, output_file: str) -> str:
     """
     Wrapper for tlsCycleAdaptation.py. Adapts traffic light cycles based on traffic demand.
@@ -41,9 +42,9 @@ def tls_cycle_adaptation(net_file: str, route_files: str, output_file: str) -> s
                 "(so that `$SUMO_HOME/tools/tlsCycleAdaptation.py` exists).",
             ]
         )
-        
+
     cmd = [sys.executable, script, "-n", net_file, "-r", route_files, "-o", output_file]
-    
+
     try:
         result = subprocess_run_with_timeout(
             cmd,
@@ -57,10 +58,11 @@ def tls_cycle_adaptation(net_file: str, route_files: str, output_file: str) -> s
     except Exception as e:
         return f"Error: {str(e)}"
 
+
 def tls_coordinator(net_file: str, route_files: str, output_file: str, options: Optional[List[str]] = None) -> str:
     """
     Wrapper for tlsCoordinator.py. Optimizes traffic light coordination.
-    
+
     Args:
         net_file: Path to network file.
         route_files: Path to route file(s).
@@ -76,12 +78,12 @@ def tls_coordinator(net_file: str, route_files: str, output_file: str, options: 
                 "(so that `$SUMO_HOME/tools/tlsCoordinator.py` exists).",
             ]
         )
-        
+
     cmd = [sys.executable, script, "-n", net_file, "-r", route_files, "-o", output_file]
-    
+
     if options:
         cmd.extend(options)
-        
+
     try:
         result = subprocess_run_with_timeout(
             cmd,
