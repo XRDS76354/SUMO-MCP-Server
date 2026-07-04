@@ -389,7 +389,7 @@ def run_rl_training(
                     except Exception:
                         pass
 
-        from utils.timeout import run_with_adaptive_timeout
+        from sumo_mcp.utils.timeout import run_with_adaptive_timeout
 
         return run_with_adaptive_timeout(
             _train,
@@ -409,7 +409,7 @@ def run_rl_training(
         ]
 
         try:
-            from utils.sumo import find_sumo_binary
+            from sumo_mcp.utils.sumo import find_sumo_binary
 
             diagnostics[2] = f"- sumo_binary: {find_sumo_binary('sumo') or 'Not Found'}"
         except Exception:

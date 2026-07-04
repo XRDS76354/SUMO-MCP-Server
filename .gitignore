@@ -178,8 +178,8 @@ examples/*.txt
 !examples/*.py
 !examples/*.md
 
-# Local experiments (not part of OSS release)
-test/
+# Local experiments / private assets (not part of OSS release)
+local/
 
 # Local configuration overrides (optional)
 config_local.py
@@ -188,9 +188,6 @@ secrets.py
 # Kiro specific
 kiro_test/
 .kiro/
-
-# Test output directories (generated artifacts, not source)
-tests/
 
 # Local SUMO distribution copy (too large for git)
 sumo/

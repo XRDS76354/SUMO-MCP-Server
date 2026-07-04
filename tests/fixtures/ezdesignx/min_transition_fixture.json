@@ -1,0 +1,388 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture-transition",
+  "name": "最小过渡测试",
+  "scale": 1,
+  "rotation": 0,
+  "drivingSide": "right",
+  "roads": [
+    {
+      "id": "roadEast",
+      "angle": 0,
+      "useCornerCurve": true,
+      "incomingSegments": [
+        {
+          "id": "roadEast-in-0",
+          "type": "uniform",
+          "lanes": [
+            {
+              "id": "lane-0",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 5.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-1",
+              "width": 1.8,
+              "laneType": "non-motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 5.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "markingRules": [],
+          "shape": "line",
+          "start": {
+            "x": 0.0,
+            "y": 3.25
+          },
+          "end": {
+            "x": 28.0,
+            "y": 3.25
+          },
+          "stopLineDistance": 15
+        },
+        {
+          "id": "roadEast-in-trans",
+          "type": "transition",
+          "alignment": "outer",
+          "laneMapping": {
+            "0": 0
+          },
+          "shape": "line",
+          "start": {
+            "x": 28.0,
+            "y": 0.6
+          },
+          "end": {
+            "x": 38.0,
+            "y": 0.6
+          }
+        },
+        {
+          "id": "roadEast-in-1",
+          "type": "uniform",
+          "lanes": [
+            3.5,
+            1.8
+          ],
+          "shape": "line",
+          "start": {
+            "x": 38.0,
+            "y": 3.25
+          },
+          "end": {
+            "x": 80.0,
+            "y": 3.25
+          }
+        }
+      ],
+      "outgoingSegments": [
+        {
+          "id": "roadEast-out-0",
+          "type": "uniform",
+          "lanes": [
+            {
+              "id": "lane-0",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 1.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-1",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 1.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "shape": "line",
+          "start": {
+            "x": 0.0,
+            "y": -4.1
+          },
+          "end": {
+            "x": 24.0,
+            "y": -4.1
+          },
+          "stopLineDistance": 15
+        },
+        {
+          "id": "roadEast-out-trans",
+          "type": "transition",
+          "alignment": "outer",
+          "laneMapping": {
+            "0": 1
+          },
+          "shape": "line",
+          "start": {
+            "x": 24.0,
+            "y": -0.6
+          },
+          "end": {
+            "x": 36.0,
+            "y": -0.6
+          }
+        },
+        {
+          "id": "roadEast-out-1",
+          "type": "uniform",
+          "lanes": [
+            3.5
+          ],
+          "shape": "line",
+          "start": {
+            "x": 36.0,
+            "y": -2.35
+          },
+          "end": {
+            "x": 86.0,
+            "y": -2.35
+          }
+        }
+      ],
+      "median": {
+        "centerline": {
+          "splits": [],
+          "regions": [
+            {
+              "id": "roadEast-median-region-0",
+              "fillEnabled": true
+            }
+          ],
+          "startCap": {
+            "extensionDistance": 6.0,
+            "cornerRadius": 0.3
+          }
+        }
+      }
+    },
+    {
+      "id": "roadWest",
+      "angle": 180,
+      "useCornerCurve": true,
+      "incomingSegments": [
+        {
+          "id": "roadWest-in-0",
+          "type": "uniform",
+          "lanes": [
+            {
+              "id": "lane-0",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 5.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "markingRules": [],
+          "shape": "line",
+          "start": {
+            "x": -0.0,
+            "y": -2.35
+          },
+          "end": {
+            "x": -24.0,
+            "y": -2.35
+          },
+          "stopLineDistance": 14
+        }
+      ],
+      "outgoingSegments": [
+        {
+          "id": "roadWest-out-0",
+          "type": "uniform",
+          "lanes": [
+            {
+              "id": "lane-0",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 1.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-1",
+              "width": 1.8,
+              "laneType": "non-motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-0",
+                        "type": "straight",
+                        "regionDistance": 1.0,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "shape": "line",
+          "start": {
+            "x": 0.0,
+            "y": 3.25
+          },
+          "end": {
+            "x": -26.0,
+            "y": 3.25
+          },
+          "stopLineDistance": 14
+        },
+        {
+          "id": "roadWest-out-trans",
+          "type": "transition",
+          "alignment": "outer",
+          "laneMapping": {
+            "0": 0
+          },
+          "shape": "line",
+          "start": {
+            "x": -26.0,
+            "y": 0.6
+          },
+          "end": {
+            "x": -34.0,
+            "y": 0.6
+          }
+        },
+        {
+          "id": "roadWest-out-1",
+          "type": "uniform",
+          "lanes": [
+            3.5,
+            1.8
+          ],
+          "shape": "line",
+          "start": {
+            "x": -34.0,
+            "y": 3.25
+          },
+          "end": {
+            "x": -74.0,
+            "y": 3.25
+          }
+        }
+      ],
+      "median": {
+        "centerline": {
+          "splits": [],
+          "regions": [
+            {
+              "id": "roadWest-median-region-0",
+              "fillEnabled": true
+            }
+          ],
+          "startCap": {
+            "extensionDistance": 6.0,
+            "cornerRadius": 0.3
+          }
+        }
+      }
+    }
+  ],
+  "crosswalks": [],
+  "rightTurnLanes": []
+}

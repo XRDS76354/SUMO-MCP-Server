@@ -1,0 +1,93 @@
+"""MCP stdio protocol smoke tests.
+
+Verifies that every supported launch mode completes the JSON-RPC ``initialize``
+handshake and that ``tools/list`` still exposes the full v0.1 tool surface —
+i.e. nothing pollutes stdout and no tool got lost in a refactor.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+
+V01_TOOLS = {
+    "manage_network",
+    "convert_ezdesignx_network",
+    "manage_demand",
+    "control_simulation",
+    "query_simulation_state",
+    "optimize_traffic_signals",
+    "run_workflow",
+    "manage_rl_task",
+    "get_sumo_info",
+    "run_simple_simulation",
+    "run_analysis",
+}
+
+
+def _rpc(proc: subprocess.Popen, payload: dict) -> None:
+    assert proc.stdin is not None
+    proc.stdin.write(json.dumps(payload) + "\n")
+    proc.stdin.flush()
+
+
+def _read_response(proc: subprocess.Popen) -> dict:
+    assert proc.stdout is not None
+    line = proc.stdout.readline()
+    assert line, "server closed stdout without responding"
+    return json.loads(line)
+
+
+@pytest.mark.parametrize(
+    "launch",
+    [
+        pytest.param([sys.executable, str(ROOT / "src" / "server.py")], id="shim-script"),
+        pytest.param([sys.executable, "-m", "sumo_mcp"], id="python-m"),
+    ],
+)
+def test_stdio_initialize_and_tools_list(launch: list[str]) -> None:
+    import os
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+
+    proc = subprocess.Popen(
+        launch,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        env=env,
+        cwd=str(ROOT),
+    )
+    try:
+        _rpc(proc, {
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "0"},
+            },
+        })
+        init = _read_response(proc)
+        assert init["id"] == 1
+        assert init["result"]["serverInfo"]["name"] == "SUMO-MCP-Server"
+
+        _rpc(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+        _rpc(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        tools_resp = _read_response(proc)
+        names = {t["name"] for t in tools_resp["result"]["tools"]}
+
+        missing = V01_TOOLS - names
+        assert not missing, f"v0.1 tools missing from tools/list: {sorted(missing)}"
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()

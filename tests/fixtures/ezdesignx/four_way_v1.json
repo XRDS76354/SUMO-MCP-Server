@@ -1,0 +1,1460 @@
+{
+  "schemaVersion": 1,
+  "scale": 1,
+  "rotation": 0,
+  "drivingSide": "right",
+  "roads": [
+    {
+      "id": "roadEast",
+      "angle": 0,
+      "streetName": "芙蓉大道",
+      "median": {
+        "centerline": {
+          "splits": [],
+          "regions": [
+            {
+              "id": "roadEast-median-region-0",
+              "fillEnabled": true
+            }
+          ],
+          "startCap": {
+            "extensionDistance": 5,
+            "cornerRadius": 3
+          }
+        }
+      },
+      "cornerCurvatureA": 0.4,
+      "cornerCurvatureB": 0.4,
+      "useCornerCurve": true,
+      "incomingSegments": [
+        {
+          "id": "roadEast-in-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 25,
+            "y": -7.6
+          },
+          "end": {
+            "x": 65,
+            "y": -7.6
+          },
+          "lanes": [
+            {
+              "id": "lane-xvqvtiian",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-1dqvlx0q5",
+                        "type": "左转300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-w5s10e2ze",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-p0jn4t0je",
+                        "type": "直左300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-rynngtjtq",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-9rcjd391q",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-t0gsl7w8y",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-gpnoaoasz",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25,
+          "markingRules": [
+            {
+              "dividerIndex": 0,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 1,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 2,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "roadEast-in-trans-0",
+          "type": "transition"
+        },
+        {
+          "id": "roadEast-in-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 85,
+            "y": -5.25
+          },
+          "end": {
+            "x": 185,
+            "y": -5.25
+          },
+          "lanes": [
+            {
+              "id": "lane-f0ukmjysh",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-9gep4ldmx",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-4q7y9ebti",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "outgoingSegments": [
+        {
+          "id": "roadEast-out-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 25,
+            "y": 4.1
+          },
+          "end": {
+            "x": 65,
+            "y": 4.1
+          },
+          "lanes": [
+            {
+              "id": "lane-klqn2xoie",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-pbwtin11l",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-sac579gia",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-4ihfoobt8",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25
+        },
+        {
+          "id": "roadEast-out-trans-0",
+          "type": "transition",
+          "laneMapping": {
+            "0": 1,
+            "1": 2
+          }
+        },
+        {
+          "id": "roadEast-out-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 85,
+            "y": 5.25
+          },
+          "end": {
+            "x": 185,
+            "y": 5.25
+          },
+          "lanes": [
+            {
+              "id": "lane-hbktf9lxa",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-pljmz1o2s",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-sk6e04mpm",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "laneArrows": {}
+    },
+    {
+      "id": "roadSouth",
+      "angle": 90,
+      "streetName": "潇湘大道",
+      "median": {
+        "centerline": {
+          "splits": [],
+          "regions": [
+            {
+              "id": "roadSouth-median-region-0",
+              "fillEnabled": true
+            }
+          ],
+          "startCap": {
+            "extensionDistance": 5,
+            "cornerRadius": 3
+          }
+        }
+      },
+      "cornerCurvatureA": 0.4,
+      "cornerCurvatureB": 0.4,
+      "useCornerCurve": true,
+      "incomingSegments": [
+        {
+          "id": "roadSouth-in-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 7.6,
+            "y": 25
+          },
+          "end": {
+            "x": 7.6,
+            "y": 65
+          },
+          "lanes": [
+            {
+              "id": "lane-32ks171fw",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-bxudixkrh",
+                        "type": "左转300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-xfo3kqr5c",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-cn1w0g19p",
+                        "type": "直左300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-wgyoeg62t",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-75r4zuhud",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-rmv446idt",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-ht75ud6x2",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25,
+          "markingRules": [
+            {
+              "dividerIndex": 0,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 1,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 2,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "roadSouth-in-trans-0",
+          "type": "transition"
+        },
+        {
+          "id": "roadSouth-in-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 5.25,
+            "y": 85
+          },
+          "end": {
+            "x": 5.25,
+            "y": 185
+          },
+          "lanes": [
+            {
+              "id": "lane-ixpxxashd",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-ny7q77jdm",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-3ghkje9vc",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "outgoingSegments": [
+        {
+          "id": "roadSouth-out-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -4.1,
+            "y": 25
+          },
+          "end": {
+            "x": -4.1,
+            "y": 65
+          },
+          "lanes": [
+            {
+              "id": "lane-ber188513",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-luxuwzhly",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-tj9qx35sh",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-xbs336ke8",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25
+        },
+        {
+          "id": "roadSouth-out-trans-0",
+          "type": "transition",
+          "laneMapping": {
+            "0": 1,
+            "1": 2
+          }
+        },
+        {
+          "id": "roadSouth-out-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -5.25,
+            "y": 85
+          },
+          "end": {
+            "x": -5.25,
+            "y": 185
+          },
+          "lanes": [
+            {
+              "id": "lane-va46fee5x",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-4js6fzqw5",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-q3w1x6jfh",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "laneArrows": {}
+    },
+    {
+      "id": "roadWest",
+      "angle": 180,
+      "streetName": "芙蓉大道",
+      "median": {
+        "centerline": {
+          "splits": [],
+          "regions": [
+            {
+              "id": "roadWest-median-region-0",
+              "fillEnabled": true
+            }
+          ],
+          "startCap": {
+            "extensionDistance": 5,
+            "cornerRadius": 3
+          }
+        }
+      },
+      "cornerCurvatureA": 0.4,
+      "cornerCurvatureB": 0.4,
+      "useCornerCurve": true,
+      "incomingSegments": [
+        {
+          "id": "roadWest-in-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -25,
+            "y": 7.6
+          },
+          "end": {
+            "x": -65,
+            "y": 7.6
+          },
+          "lanes": [
+            {
+              "id": "lane-ywtkyvgoe",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-hpiqbyvdh",
+                        "type": "左转300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-svmpbci06",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-wkiadr43i",
+                        "type": "直左300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-xl7p69gyj",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-2vsfp8n0x",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-p6mlyd3nf",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-mz2ejpyon",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25,
+          "markingRules": [
+            {
+              "dividerIndex": 0,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 1,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 2,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "roadWest-in-trans-0",
+          "type": "transition"
+        },
+        {
+          "id": "roadWest-in-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -85,
+            "y": 5.25
+          },
+          "end": {
+            "x": -185,
+            "y": 5.25
+          },
+          "lanes": [
+            {
+              "id": "lane-xbj1n4izq",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-1fqwsgat2",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-5xce214rz",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "outgoingSegments": [
+        {
+          "id": "roadWest-out-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -25,
+            "y": -4.1
+          },
+          "end": {
+            "x": -65,
+            "y": -4.1
+          },
+          "lanes": [
+            {
+              "id": "lane-7g5uei2jb",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-odak1svb5",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-x06d6f1sy",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-4euid1mwn",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25
+        },
+        {
+          "id": "roadWest-out-trans-0",
+          "type": "transition",
+          "laneMapping": {
+            "0": 1,
+            "1": 2
+          }
+        },
+        {
+          "id": "roadWest-out-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -85,
+            "y": -5.25
+          },
+          "end": {
+            "x": -185,
+            "y": -5.25
+          },
+          "lanes": [
+            {
+              "id": "lane-cvn0xnqmk",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-xucdmksyt",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-f5d0kpia1",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "laneArrows": {}
+    },
+    {
+      "id": "roadNorth",
+      "angle": 270,
+      "streetName": "潇湘大道",
+      "median": {
+        "centerline": {
+          "splits": [],
+          "regions": [
+            {
+              "id": "roadNorth-median-region-0",
+              "fillEnabled": true
+            }
+          ],
+          "startCap": {
+            "extensionDistance": 5,
+            "cornerRadius": 3
+          }
+        }
+      },
+      "cornerCurvatureA": 0.4,
+      "cornerCurvatureB": 0.4,
+      "useCornerCurve": true,
+      "incomingSegments": [
+        {
+          "id": "roadNorth-in-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -7.6,
+            "y": -25
+          },
+          "end": {
+            "x": -7.6,
+            "y": -65
+          },
+          "lanes": [
+            {
+              "id": "lane-u8h8rplya",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-rf334bu7h",
+                        "type": "左转300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-ysrnlauh3",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-70dpijght",
+                        "type": "直左300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-d3s7p53oj",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-oude2j5wt",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-cyv1ms4fj",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-jrajvxggk",
+                        "type": "直行300",
+                        "regionDistance": 5,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25,
+          "markingRules": [
+            {
+              "dividerIndex": 0,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 1,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "dividerIndex": 2,
+              "start": 0,
+              "end": 20,
+              "styleConfig": {
+                "mode": "stroke",
+                "dashArray": [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "roadNorth-in-trans-0",
+          "type": "transition"
+        },
+        {
+          "id": "roadNorth-in-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": -5.25,
+            "y": -85
+          },
+          "end": {
+            "x": -5.25,
+            "y": -185
+          },
+          "lanes": [
+            {
+              "id": "lane-8ptvw8q8n",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-rpi72ej7a",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-hwqyn32kn",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "outgoingSegments": [
+        {
+          "id": "roadNorth-out-seg-0",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 4.1,
+            "y": -25
+          },
+          "end": {
+            "x": 4.1,
+            "y": -65
+          },
+          "lanes": [
+            {
+              "id": "lane-c8068mxml",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-lz85b8gul",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lane-4nz6f1dvq",
+              "width": 3.5,
+              "laneType": "motor",
+              "centerline": {
+                "splits": [],
+                "regions": [
+                  {
+                    "id": "r-default",
+                    "fillEnabled": true,
+                    "markings": [
+                      {
+                        "id": "marking-w3hwsrljh",
+                        "type": "直行300",
+                        "regionDistance": 1,
+                        "offsetU": 0,
+                        "offsetV": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "stopLineDistance": 25
+        },
+        {
+          "id": "roadNorth-out-trans-0",
+          "type": "transition",
+          "laneMapping": {
+            "0": 1,
+            "1": 2
+          }
+        },
+        {
+          "id": "roadNorth-out-seg-1",
+          "type": "uniform",
+          "shape": "line",
+          "start": {
+            "x": 5.25,
+            "y": -85
+          },
+          "end": {
+            "x": 5.25,
+            "y": -185
+          },
+          "lanes": [
+            {
+              "id": "lane-4ge2pwwib",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-tem033ml2",
+              "width": 3.5,
+              "laneType": "motor"
+            },
+            {
+              "id": "lane-z0wh5291n",
+              "width": 3.5,
+              "laneType": "motor"
+            }
+          ]
+        }
+      ],
+      "laneArrows": {}
+    }
+  ],
+  "crosswalks": [
+    {
+      "id": "crosswalk-1778130350768-sest8s",
+      "name": "默认人行横道",
+      "enabled": true,
+      "mode": "standard",
+      "startAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadNorth->roadEast:curve",
+        "ratio": 0.79
+      },
+      "endAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadEast->roadSouth:curve",
+        "ratio": 0.2
+      },
+      "crosswalkWidth": 4
+    },
+    {
+      "id": "crosswalk-1778130350768-359n9r",
+      "name": "默认人行横道",
+      "enabled": true,
+      "mode": "standard",
+      "startAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadEast->roadSouth:curve",
+        "ratio": 0.79
+      },
+      "endAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadSouth->roadWest:curve",
+        "ratio": 0.2
+      },
+      "crosswalkWidth": 4
+    },
+    {
+      "id": "crosswalk-1778130350768-07rxpi",
+      "name": "默认人行横道",
+      "enabled": true,
+      "mode": "standard",
+      "startAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadSouth->roadWest:curve",
+        "ratio": 0.79
+      },
+      "endAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadWest->roadNorth:curve",
+        "ratio": 0.2
+      },
+      "crosswalkWidth": 4
+    },
+    {
+      "id": "crosswalk-1778130350768-d36gne",
+      "name": "默认人行横道",
+      "enabled": true,
+      "mode": "standard",
+      "startAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadWest->roadNorth:curve",
+        "ratio": 0.79
+      },
+      "endAnchor": {
+        "sourceType": "junction_curve",
+        "sourceKey": "corner:roadNorth->roadEast:curve",
+        "ratio": 0.2
+      },
+      "crosswalkWidth": 4
+    }
+  ],
+  "rightTurnLanes": [
+    {
+      "fromRoadId": "roadEast",
+      "toRoadId": "roadNorth",
+      "type": "solid",
+      "laneWidth": 3.5,
+      "currentLength": 10,
+      "nextLength": 10,
+      "innerCurrentLength": 5,
+      "innerNextLength": 5,
+      "curvatureA": 0.35,
+      "curvatureB": 0.35,
+      "innerEntryTangentAngle": 0,
+      "innerExitTangentAngle": 0,
+      "outerEntryTangentAngle": 0,
+      "outerExitTangentAngle": 0,
+      "entryLaneCount": 0.5,
+      "exitLaneCount": 0.5,
+      "entryL1": 4,
+      "entryL2": 8,
+      "exitL1": 4,
+      "exitL2": 8,
+      "entryTaperCurvature": 0.5,
+      "exitTaperCurvature": 0.5,
+      "entryHasTaper": true,
+      "exitHasTaper": true,
+      "paintedEntryLanes": 1,
+      "paintedExitLanes": 1,
+      "entryOffset": 3,
+      "exitOffset": 3,
+      "entryCurvature": 0.3,
+      "exitCurvature": 0.3,
+      "entryTangentAngle": 0,
+      "exitTangentAngle": 0,
+      "islandInsetDistance": 0.3,
+      "islandOutsetDistance": 0.15,
+      "islandJoinType": "round"
+    },
+    {
+      "fromRoadId": "roadSouth",
+      "toRoadId": "roadEast",
+      "type": "solid",
+      "laneWidth": 3.5,
+      "currentLength": 10,
+      "nextLength": 10,
+      "innerCurrentLength": 5,
+      "innerNextLength": 5,
+      "curvatureA": 0.35,
+      "curvatureB": 0.35,
+      "innerEntryTangentAngle": 0,
+      "innerExitTangentAngle": 0,
+      "outerEntryTangentAngle": 0,
+      "outerExitTangentAngle": 0,
+      "entryLaneCount": 0.5,
+      "exitLaneCount": 0.5,
+      "entryL1": 4,
+      "entryL2": 8,
+      "exitL1": 4,
+      "exitL2": 8,
+      "entryTaperCurvature": 0.5,
+      "exitTaperCurvature": 0.5,
+      "entryHasTaper": true,
+      "exitHasTaper": true,
+      "paintedEntryLanes": 1,
+      "paintedExitLanes": 1,
+      "entryOffset": 3,
+      "exitOffset": 3,
+      "entryCurvature": 0.3,
+      "exitCurvature": 0.3,
+      "entryTangentAngle": 0,
+      "exitTangentAngle": 0,
+      "islandInsetDistance": 0.3,
+      "islandOutsetDistance": 0.15,
+      "islandJoinType": "round"
+    },
+    {
+      "fromRoadId": "roadWest",
+      "toRoadId": "roadSouth",
+      "type": "solid",
+      "laneWidth": 3.5,
+      "currentLength": 10,
+      "nextLength": 10,
+      "innerCurrentLength": 5,
+      "innerNextLength": 5,
+      "curvatureA": 0.35,
+      "curvatureB": 0.35,
+      "innerEntryTangentAngle": 0,
+      "innerExitTangentAngle": 0,
+      "outerEntryTangentAngle": 0,
+      "outerExitTangentAngle": 0,
+      "entryLaneCount": 0.5,
+      "exitLaneCount": 0.5,
+      "entryL1": 4,
+      "entryL2": 8,
+      "exitL1": 4,
+      "exitL2": 8,
+      "entryTaperCurvature": 0.5,
+      "exitTaperCurvature": 0.5,
+      "entryHasTaper": true,
+      "exitHasTaper": true,
+      "paintedEntryLanes": 1,
+      "paintedExitLanes": 1,
+      "entryOffset": 3,
+      "exitOffset": 3,
+      "entryCurvature": 0.3,
+      "exitCurvature": 0.3,
+      "entryTangentAngle": 0,
+      "exitTangentAngle": 0,
+      "islandInsetDistance": 0.3,
+      "islandOutsetDistance": 0.15,
+      "islandJoinType": "round"
+    },
+    {
+      "fromRoadId": "roadNorth",
+      "toRoadId": "roadWest",
+      "type": "solid",
+      "laneWidth": 3.5,
+      "currentLength": 10,
+      "nextLength": 10,
+      "innerCurrentLength": 5,
+      "innerNextLength": 5,
+      "curvatureA": 0.35,
+      "curvatureB": 0.35,
+      "innerEntryTangentAngle": 0,
+      "innerExitTangentAngle": 0,
+      "outerEntryTangentAngle": 0,
+      "outerExitTangentAngle": 0,
+      "entryLaneCount": 0.5,
+      "exitLaneCount": 0.5,
+      "entryL1": 4,
+      "entryL2": 8,
+      "exitL1": 4,
+      "exitL2": 8,
+      "entryTaperCurvature": 0.5,
+      "exitTaperCurvature": 0.5,
+      "entryHasTaper": true,
+      "exitHasTaper": true,
+      "paintedEntryLanes": 1,
+      "paintedExitLanes": 1,
+      "entryOffset": 3,
+      "exitOffset": 3,
+      "entryCurvature": 0.3,
+      "exitCurvature": 0.3,
+      "entryTangentAngle": 0,
+      "exitTangentAngle": 0,
+      "islandInsetDistance": 0.3,
+      "islandOutsetDistance": 0.15,
+      "islandJoinType": "round"
+    }
+  ]
+}
