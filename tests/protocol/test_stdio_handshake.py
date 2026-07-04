@@ -85,6 +85,27 @@ def test_stdio_initialize_and_tools_list(launch: list[str]) -> None:
 
         missing = V01_TOOLS - names
         assert not missing, f"v0.1 tools missing from tools/list: {sorted(missing)}"
+
+        # v0.2 envelope over the wire: call a tool with an unknown action
+        # (deterministic, requires no SUMO) and verify the structured envelope
+        # arrives as parseable JSON.
+        _rpc(proc, {
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {
+                "name": "manage_network",
+                "arguments": {"action": "no_such_action", "output_file": "x"},
+            },
+        })
+        call_resp = _read_response(proc)
+        result = call_resp["result"]
+        # FastMCP nests dict returns under structuredContent.result; the text
+        # block carries the same JSON for clients without structured support.
+        structured = result.get("structuredContent") or {}
+        envelope = structured.get("result") or json.loads(result["content"][0]["text"])
+        assert envelope["ok"] is False
+        assert envelope["tool"] == "manage_network"
+        assert envelope["summary"] == "Unknown action: no_such_action"
+        assert envelope["error"]["code"] == "INVALID_ARGUMENT"
     finally:
         proc.terminate()
         try:

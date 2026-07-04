@@ -23,7 +23,9 @@ def test_dedicated_ezdesignx_tool_delegates_to_summary_wrapper(tmp_path: Path, m
         sumo_gui_bin="sumo-gui-custom",
     )
 
-    assert result == "converted"
+    # v0.2: structured envelope; the v0.1 string lives in `summary`.
+    assert result["ok"] is True
+    assert result["summary"] == "converted"
     assert calls == [
         {
             "input_json": "fixture.jsonc",
@@ -58,7 +60,9 @@ def test_manage_network_convert_ezdesignx_delegates_to_summary_wrapper(tmp_path:
         },
     )
 
-    assert result == "converted"
+    # v0.2: structured envelope; the v0.1 string lives in `summary`.
+    assert result["ok"] is True
+    assert result["summary"] == "converted"
     assert calls == [
         {
             "input_json": "fixture.jsonc",
@@ -80,4 +84,7 @@ def test_manage_network_convert_ezdesignx_requires_input_json(tmp_path: Path) ->
         params={},
     )
 
-    assert result == "Error: input_json required for convert_ezdesignx action"
+    # v0.2: structured error envelope; the v0.1 error string lives in `summary`.
+    assert result["ok"] is False
+    assert result["summary"] == "Error: input_json required for convert_ezdesignx action"
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
