@@ -127,7 +127,29 @@ def make_error(
     )
 
 
-_ERROR_PREFIX = re.compile(r"^\s*(error\b|error:|training failed|failed to|fatal\b)", re.IGNORECASE)
+# Matches every failure-string convention used by the v0.1 wrappers.
+# Inventoried from mcp_tools/{network,route,signal,simulation,analysis,rl}.py
+# and workflows/{sim_gen,signal_opt,rl_train}.py — keep in sync with
+# tests/unit/test_legacy_failure_detection.py:
+#   "Error: ..." / "Error finding netconvert: ..." / "Analysis error: ..."
+#   "Netconvert failed." / "randomTrips failed." / "tlsCoordinator failed."
+#   "duarouter execution error: ..." / "Simulation error: ..."
+#   "Training failed: ..." / "Step 1 Failed: ..." / "Step 4 Failed: Could not..."
+#   "Baseline Simulation Failed: ..." / "Optimized Simulation Failed: ..."
+#   "Operation 'x' timed out after Ns" / "Fatal: ..."
+_ERROR_PREFIX = re.compile(
+    r"^\s*("
+    r"error\b"                       # "Error: ...", "Error finding X: ..."
+    r"|fatal\b"
+    r"|training failed"
+    r"|failed to\b"
+    r"|step \d+ failed"              # workflow step failures
+    r"|(baseline|optimized) simulation failed"
+    r"|\S+(\s\S+)* (failed|execution error|error)[.:\s]"  # "<tool> failed." / "<tool> execution error:"
+    r"|operation '[^']*' timed out"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def _infer_error_code(text: str) -> str:

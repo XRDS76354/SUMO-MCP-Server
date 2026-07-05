@@ -480,51 +480,74 @@ def run_workflow(workflow_name: str, params: Dict[str, Any]) -> Envelope:
                 return params[k]
         return default
 
-    if workflow_name in ("sim_gen_eval", "sim_gen_workflow", "sim_gen"):
-        grid_number = get_param(["grid_number", "grid_size", "size"], 3)
-        sim_seconds = get_param(["sim_seconds", "steps", "duration", "end_time"], 100)
-        output_dir = get_param(["output_dir"], "output")
+    class _BadParam(Exception):
+        pass
 
-        text = sim_gen_workflow(output_dir, int(grid_number), int(sim_seconds))
-        return legacy_result(
-            tool, text, action=workflow_name,
-            data={"workflow": "sim_gen_eval", "output_dir": output_dir,
-                  "grid_number": int(grid_number), "sim_seconds": int(sim_seconds)},
-        )
+    def get_int_param(keys: List[str], default: int) -> int:
+        raw = get_param(keys, default)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            raise _BadParam(f"Error: {keys[0]} must be an integer, got {raw!r}") from None
 
-    elif workflow_name in ("signal_opt", "signal_opt_workflow"):
-        net_file = get_param(["net_file"], "")
-        route_file = get_param(["route_file"], "")
+    try:
+        if workflow_name in ("sim_gen_eval", "sim_gen_workflow", "sim_gen"):
+            grid_number = get_int_param(["grid_number", "grid_size", "size"], 3)
+            sim_seconds = get_int_param(["sim_seconds", "steps", "duration", "end_time"], 100)
+            output_dir = get_param(["output_dir"], "output")
 
-        if not net_file or not route_file:
-            return make_error(
-                tool, "Error: signal_opt requires net_file and route_file parameters.",
-                code=ErrorCode.INVALID_ARGUMENT, action=workflow_name,
+            text = sim_gen_workflow(output_dir, grid_number, sim_seconds)
+            return legacy_result(
+                tool, text, action=workflow_name,
+                data={"workflow": "sim_gen_eval", "output_dir": output_dir,
+                      "grid_number": grid_number, "sim_seconds": sim_seconds},
             )
 
-        sim_seconds = get_param(["sim_seconds", "steps", "duration"], 3600)
-        use_coordinator = get_param(["use_coordinator"], False)
-        output_dir = get_param(["output_dir"], "output")
+        elif workflow_name in ("signal_opt", "signal_opt_workflow"):
+            net_file = get_param(["net_file"], "")
+            route_file = get_param(["route_file"], "")
 
-        text = signal_opt_workflow(net_file, route_file, output_dir, int(sim_seconds), bool(use_coordinator))
-        return legacy_result(
-            tool, text, action=workflow_name,
-            data={"workflow": "signal_opt", "output_dir": output_dir,
-                  "net_file": net_file, "route_file": route_file,
-                  "sim_seconds": int(sim_seconds), "use_coordinator": bool(use_coordinator)},
-        )
+            if not net_file or not route_file:
+                return make_error(
+                    tool, "Error: signal_opt requires net_file and route_file parameters.",
+                    code=ErrorCode.INVALID_ARGUMENT, action=workflow_name,
+                )
 
-    elif workflow_name == "rl_train":
-        scenario_name = get_param(["scenario_name", "scenario"], "")
-        episodes = get_param(["episodes", "num_episodes"], 5)
-        steps = get_param(["steps", "steps_per_episode"], 1000)
-        output_dir = get_param(["output_dir"], "output")
+            sim_seconds = get_int_param(["sim_seconds", "steps", "duration"], 3600)
+            use_coordinator = get_param(["use_coordinator"], False)
+            output_dir = get_param(["output_dir"], "output")
 
-        text = rl_train_workflow(scenario_name, output_dir, int(episodes), int(steps))
-        return legacy_result(
-            tool, text, action=workflow_name,
-            data={"workflow": "rl_train", "scenario_name": scenario_name,
-                  "episodes": int(episodes), "steps": int(steps), "output_dir": output_dir},
+            text = signal_opt_workflow(net_file, route_file, output_dir, sim_seconds, bool(use_coordinator))
+            return legacy_result(
+                tool, text, action=workflow_name,
+                data={"workflow": "signal_opt", "output_dir": output_dir,
+                      "net_file": net_file, "route_file": route_file,
+                      "sim_seconds": sim_seconds, "use_coordinator": bool(use_coordinator)},
+            )
+
+        elif workflow_name == "rl_train":
+            scenario_name = get_param(["scenario_name", "scenario"], "")
+            episodes = get_int_param(["episodes", "num_episodes"], 5)
+            steps = get_int_param(["steps", "steps_per_episode"], 1000)
+            output_dir = get_param(["output_dir"], "output")
+
+            text = rl_train_workflow(scenario_name, output_dir, episodes, steps)
+            return legacy_result(
+                tool, text, action=workflow_name,
+                data={"workflow": "rl_train", "scenario_name": scenario_name,
+                      "episodes": episodes, "steps": steps, "output_dir": output_dir},
+            )
+
+    except _BadParam as bad:
+        return make_error(tool, str(bad), code=ErrorCode.INVALID_ARGUMENT, action=workflow_name)
+    except TimeoutError as exc:
+        return make_error(tool, f"Error: workflow timed out: {exc}", code=ErrorCode.TIMEOUT, action=workflow_name)
+    except Exception as exc:
+        # Workflow internals mostly return error strings, but filesystem and
+        # subprocess surprises can still raise — keep the envelope promise.
+        return make_error(
+            tool, f"Error: workflow {workflow_name} raised {type(exc).__name__}: {exc}",
+            code=ErrorCode.EXECUTION_FAILED, action=workflow_name,
         )
 
     return make_error(

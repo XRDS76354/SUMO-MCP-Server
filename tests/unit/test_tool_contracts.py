@@ -355,6 +355,51 @@ def test_run_workflow_signal_opt_and_rl_train(monkeypatch: pytest.MonkeyPatch) -
     assert "Unknown workflow" in env["summary"] and "sim_gen_eval" in env["summary"]
 
 
+def test_run_workflow_invalid_numeric_params_return_envelope() -> None:
+    """codex-review regression: bad numeric params must not raise out of the tool."""
+    env = srv.run_workflow("sim_gen_eval", {"grid_size": "abc"})
+    check_envelope(env)
+    assert env["ok"] is False and env["error"]["code"] == ErrorCode.INVALID_ARGUMENT
+    assert "grid_number must be an integer" in env["summary"]
+
+    env = srv.run_workflow("rl_train", {"scenario": "s", "episodes": "many"})
+    assert env["ok"] is False and env["error"]["code"] == ErrorCode.INVALID_ARGUMENT
+
+    env = srv.run_workflow("signal_opt", {"net_file": "n", "route_file": "r", "duration": "long"})
+    assert env["ok"] is False and env["error"]["code"] == ErrorCode.INVALID_ARGUMENT
+
+
+def test_run_workflow_internal_exception_returns_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """codex-review regression: workflow exceptions must become ok=false envelopes."""
+    def explode(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(srv, "sim_gen_workflow", explode)
+    env = srv.run_workflow("sim_gen_eval", {})
+    check_envelope(env)
+    assert env["ok"] is False and env["error"]["code"] == ErrorCode.EXECUTION_FAILED
+    assert "disk full" in env["summary"]
+
+    def hang(*a, **k):
+        raise TimeoutError("Operation 'simulation' timed out after 60s")
+
+    monkeypatch.setattr(srv, "sim_gen_workflow", hang)
+    env = srv.run_workflow("sim_gen_eval", {})
+    assert env["ok"] is False and env["error"]["code"] == ErrorCode.TIMEOUT
+
+
+def test_workflow_step_failure_string_yields_failed_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """codex-review regression: workflow step-failure strings must map to ok=false."""
+    monkeypatch.setattr(srv, "sim_gen_workflow", lambda *a: "Step 1 Failed: Netgenerate failed.")
+    env = srv.run_workflow("sim_gen_eval", {})
+    assert env["ok"] is False
+
+    monkeypatch.setattr(srv, "signal_opt_workflow",
+                        lambda *a: "Baseline Simulation Failed: Simulation error: x")
+    env = srv.run_workflow("signal_opt", {"net_file": "n", "route_file": "r"})
+    assert env["ok"] is False
+
+
 # --- manage_rl_task -------------------------------------------------------------
 
 
