@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,9 @@ from sumo_mcp.catalog import describe_command, list_commands
 from sumo_mcp.execution import run_cli
 from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
+from sumo_mcp.rl import create_run, list_algorithms as list_rl_algorithms_v2, list_runs, load_run
+from sumo_mcp.rl.preflight import validate_rl_environment
+from sumo_mcp.rl.runs import load_config, update_run
 from sumo_mcp.sessions import ALLOWED_CALLS, session_manager
 from sumo_mcp.utils.connection import connection_manager
 from sumo_mcp.utils.jsonsafe import to_json_safe
@@ -828,7 +832,9 @@ def run_workflow(workflow_name: str, params: Dict[str, Any]) -> Envelope:
 # --- 7. RL Task Management ---
 
 
-@server.tool(description="Manage RL tasks (list scenarios, custom training)." + _ENVELOPE_NOTE)
+@server.tool(description=(
+    "Manage RL tasks: v0.1 scenario listing/custom QL training plus v0.2 preflight, "
+    "job-based training, run listing and status/stop actions." + _ENVELOPE_NOTE))
 def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Envelope:
     """
     actions:
@@ -843,12 +849,197 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
     def _invalid(message: str) -> Envelope:
         return make_error(tool, message, code=ErrorCode.INVALID_ARGUMENT, action=action)
 
+    def _int_param(name: str, default: int) -> int:
+        raw = params.get(name, default)
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+
+    def _resolve_files() -> tuple[Optional[str], Optional[str], Optional[Envelope]]:
+        scenario_name = params.get("scenario") or params.get("scenario_name")
+        net_file = params.get("net_file")
+        route_file = params.get("route_file")
+        if scenario_name:
+            net_file, route_file, err = find_sumo_rl_scenario_files(str(scenario_name))
+            if err:
+                return None, None, make_error(tool, err, code=ErrorCode.FILE_NOT_FOUND, action=action)
+        if not net_file or not route_file:
+            return None, None, _invalid(
+                "Error: RL task requires either scenario/scenario_name or net_file + route_file"
+            )
+        return str(net_file), str(route_file), None
+
     if action == "list_scenarios":
         scenarios = list_rl_scenarios()
         return legacy_result(
             tool, str(scenarios), action=action,
             data={"scenarios": scenarios},
         )
+
+    elif action == "list_algorithms":
+        algorithms = list_rl_algorithms_v2()
+        available = [a["name"] for a in algorithms if a["available"]]
+        return make_result(
+            tool, f"{len(algorithms)} algorithm(s), available: {available}",
+            action=action, data={"algorithms": algorithms, "available": available},
+        )
+
+    elif action == "validate_env":
+        try:
+            net_file, route_file, error = _resolve_files()
+            if error:
+                return error
+            delta_time = _int_param("delta_time", 5)
+            yellow_time = _int_param("yellow_time", 2)
+        except ValueError as exc:
+            return _invalid(f"Error: {exc}")
+        algorithm = str(params.get("algorithm", "ql")).lower()
+        report = validate_rl_environment(
+            net_file=str(net_file),
+            route_file=str(route_file),
+            algorithm=algorithm,
+            delta_time=delta_time,
+            yellow_time=yellow_time,
+        )
+        if not report["ok"]:
+            failed = report["failed_checks"]
+            code = failed[0].get("code", ErrorCode.VALIDATION_FAILED) if failed else ErrorCode.VALIDATION_FAILED
+            return make_error(tool, report["summary"], code=code, action=action, data=report)
+        return make_result(tool, report["summary"], action=action, data=report)
+
+    elif action == "train":
+        try:
+            net_file, route_file, error = _resolve_files()
+            if error:
+                return error
+            algorithm = str(params.get("algorithm", "ql")).lower()
+            episodes = _int_param("episodes", 1)
+            steps_key = "steps_per_episode" if "steps_per_episode" in params else "steps"
+            steps_per_episode = _int_param(steps_key, 1000)
+            delta_time = _int_param("delta_time", 5)
+            yellow_time = _int_param("yellow_time", 2)
+        except ValueError as exc:
+            return _invalid(f"Error: {exc}")
+        if episodes <= 0 or steps_per_episode <= 0:
+            return _invalid("Error: episodes and steps_per_episode must be > 0")
+
+        preflight = validate_rl_environment(
+            net_file=str(net_file), route_file=str(route_file), algorithm=algorithm,
+            delta_time=delta_time, yellow_time=yellow_time,
+        )
+        if not preflight["ok"]:
+            failed = preflight["failed_checks"]
+            code = failed[0].get("code", ErrorCode.VALIDATION_FAILED) if failed else ErrorCode.VALIDATION_FAILED
+            return make_error(tool, preflight["summary"], code=code, action=action, data=preflight)
+        if algorithm != "ql":
+            return make_error(
+                tool,
+                f"Error: algorithm {algorithm!r} is registered but not implemented for job training yet.",
+                code=ErrorCode.INVALID_ARGUMENT,
+                action=action,
+                remediation="Use algorithm='ql' now; SB3/PettingZoo trainers are the next stage-5 increment.",
+            )
+
+        out_dir = str(params.get("out_dir") or params.get("output_dir") or "rl_runs")
+        config = {
+            "net_file": str(net_file),
+            "route_file": str(route_file),
+            "algorithm": algorithm,
+            "episodes": episodes,
+            "steps_per_episode": steps_per_episode,
+            "reward_type": str(params.get("reward_type", "diff-waiting-time")),
+            "delta_time": delta_time,
+            "yellow_time": yellow_time,
+            "seed": params.get("seed"),
+            "scenario": params.get("scenario") or params.get("scenario_name"),
+        }
+        manifest = create_run(out_dir, config)
+        run_dir = str(manifest["run_dir"])
+        command = [sys.executable, "-m", "sumo_mcp.rl.train_entry", run_dir]
+        info = job_manager.start_process_job(
+            command,
+            label=f"rl-train-{algorithm}",
+            request={"kind": "rl_train", "run_dir": run_dir, **config},
+            timeout_s=float(params.get("timeout_s", params.get("timeout", 3600))),
+            expected_outputs=[
+                {"path": str(Path(run_dir) / "metrics.csv"), "role": "rl_metrics"},
+                {"path": str(Path(run_dir) / "manifest.json"), "role": "rl_run_manifest"},
+                {"path": str(Path(run_dir) / "config.json"), "role": "rl_run_config"},
+            ],
+        )
+        update_run(run_dir, {"status": "queued", "job_id": info["job_id"]})
+        return make_result(
+            tool, f"Started RL training job {info['job_id']} ({algorithm}).",
+            action=action, data={"run": load_run(run_dir), "job": info, "preflight": preflight},
+            artifacts=[
+                artifact(str(Path(run_dir) / "config.json"), "rl_run_config"),
+                artifact(str(Path(run_dir) / "manifest.json"), "rl_run_manifest"),
+            ],
+            job_id=info["job_id"],
+        )
+
+    elif action == "resume":
+        run_dir_raw = params.get("run_dir")
+        if not run_dir_raw:
+            return _invalid("Error: run_dir required for resume")
+        run_dir = str(run_dir_raw)
+        try:
+            config = load_config(run_dir)
+            extra_episodes = _int_param("episodes", int(config.get("episodes", 1)))
+        except (OSError, ValueError, KeyError) as exc:
+            return make_error(tool, f"Error: cannot resume run: {exc}",
+                              code=ErrorCode.INVALID_ARGUMENT, action=action)
+        config["episodes"] = extra_episodes
+        update_run(run_dir, {"status": "queued"})
+        command = [sys.executable, "-m", "sumo_mcp.rl.train_entry", str(Path(run_dir).resolve())]
+        info = job_manager.start_process_job(
+            command, label=f"rl-resume-{config.get('algorithm', 'ql')}",
+            request={"kind": "rl_resume", "run_dir": run_dir, **config},
+            timeout_s=float(params.get("timeout_s", params.get("timeout", 3600))),
+        )
+        update_run(run_dir, {"job_id": info["job_id"]})
+        return make_result(tool, f"Started RL resume job {info['job_id']}.", action=action,
+                           data={"run": load_run(run_dir), "job": info}, job_id=info["job_id"])
+
+    elif action == "status":
+        run_dir_raw = params.get("run_dir")
+        job_id = params.get("job_id")
+        data: Dict[str, Any] = {}
+        if run_dir_raw:
+            run_dir = str(run_dir_raw)
+            try:
+                data["run"] = load_run(run_dir)
+            except OSError as exc:
+                return make_error(tool, f"Error: run_dir not readable: {exc}",
+                                  code=ErrorCode.FILE_NOT_FOUND, action=action)
+        if job_id:
+            status = job_manager.get_status(str(job_id))
+            if status is None:
+                return make_error(tool, f"Error: no job with id {job_id!r}",
+                                  code=ErrorCode.JOB_NOT_FOUND, action=action)
+            data["job"] = status
+        if not data:
+            return _invalid("Error: status requires run_dir or job_id")
+        summary = "RL status: " + ", ".join(f"{k}={v.get('status')}" for k, v in data.items())
+        return make_result(tool, summary, action=action, data=data, job_id=str(job_id) if job_id else None)
+
+    elif action == "stop":
+        job_id = params.get("job_id")
+        if not job_id:
+            return _invalid("Error: job_id required for stop")
+        cancelled = job_manager.cancel(str(job_id))
+        if cancelled is None:
+            return make_error(tool, f"Error: no job with id {job_id!r}",
+                              code=ErrorCode.JOB_NOT_FOUND, action=action)
+        return make_result(tool, f"RL job {job_id}: {cancelled['status']}", action=action,
+                           data={"job": cancelled}, job_id=str(job_id))
+
+    elif action == "list_runs":
+        out_dir = str(params.get("out_dir") or params.get("output_dir") or "rl_runs")
+        runs = list_runs(out_dir)
+        return make_result(tool, f"{len(runs)} RL run(s) under {out_dir}.", action=action,
+                           data={"out_dir": out_dir, "runs": runs})
 
     elif action == "train_custom":
         scenario_name = params.get("scenario") or params.get("scenario_name")

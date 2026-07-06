@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from sumo_mcp.execution.runner import is_process_alive, kill_process_tree, run_cli
+from sumo_mcp.execution.runner import is_process_alive, kill_process_tree, run_cli, run_command
 
 _MANIFEST = "manifest.json"
 _RESULT = "result.json"
@@ -105,6 +105,30 @@ class JobManager:
         ``fn`` receives the job's cancel event and must return a JSON-safe dict.
         """
         return self._start(lambda job: fn(job.cancel_event), label=label, request=request or {})
+
+    def start_process_job(
+        self,
+        command: List[str],
+        *,
+        label: str,
+        request: Optional[Dict[str, Any]] = None,
+        cwd: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+        expected_outputs: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        """Run an internal subprocess job with real process-tree cancellation."""
+
+        def work(job: _Job) -> Dict[str, Any]:
+            return run_command(
+                label, command, cwd=cwd, timeout_s=timeout_s,
+                expected_outputs=expected_outputs,
+                cancel_event=job.cancel_event,
+                process_callback=lambda info: self._record_process(job, info),
+            )
+
+        full_request = dict(request or {})
+        full_request.update({"command": list(command), "cwd": cwd, "timeout_s": timeout_s})
+        return self._start(work, label=label, request=full_request)
 
     def _start(
         self,

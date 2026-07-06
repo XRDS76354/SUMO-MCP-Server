@@ -305,3 +305,111 @@ def run_cli(
             "message": f"{name} exited with code {returncode}: {first_err}",
         }
     return result
+
+
+def run_command(
+    name: str,
+    command: List[str],
+    *,
+    cwd: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+    expected_outputs: Optional[List[Dict[str, str]]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    process_callback: Optional[ProcessCallback] = None,
+) -> Dict[str, Any]:
+    """Run an internal argv command with the same cancellation/output semantics as ``run_cli``.
+
+    This is intentionally not exposed as an MCP tool; public agent-supplied
+    commands must still go through the SUMO catalog whitelist. Internal jobs
+    (notably RL subprocess training) use this helper to get real process-tree
+    cancellation and manifest pid tracking.
+    """
+    rejection = _validate_args(command)
+    if rejection is not None:
+        return _error(name, "process", ErrorCode.INVALID_ARGUMENT, rejection)
+
+    env = dict(os.environ)
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    package_root = str(Path(__file__).resolve().parents[2])
+    env["PYTHONPATH"] = package_root + os.pathsep + env.get("PYTHONPATH", "")
+    effective_timeout = timeout_s if timeout_s is not None else DEFAULT_TIMEOUT_S
+    popen_kwargs: Dict[str, Any] = {}
+    if sys.platform != "win32":
+        popen_kwargs["start_new_session"] = True
+
+    started = time.monotonic()
+    try:
+        proc = subprocess.Popen(
+            command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+            **popen_kwargs,
+        )
+    except OSError as exc:
+        return _error(name, "process", ErrorCode.EXECUTION_FAILED, f"Failed to launch {name}: {exc}")
+
+    pgid = process_group_id(proc.pid)
+    if process_callback is not None:
+        process_callback({"pid": proc.pid, "pgid": pgid, "command": command})
+
+    stdout = ""
+    stderr = ""
+    cancelled = False
+    timed_out = False
+    try:
+        while True:
+            remaining = effective_timeout - (time.monotonic() - started)
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                _kill_process(proc)
+            if remaining <= 0:
+                timed_out = True
+                _kill_process(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                if cancelled or timed_out:
+                    continue
+        returncode: Optional[int] = proc.returncode
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _kill_process(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+        returncode = None
+
+    duration = time.monotonic() - started
+    stdout_tail = (stdout or "")[-_TAIL_CHARS:]
+    stderr_tail = (stderr or "")[-_TAIL_CHARS:]
+    artifacts = _infer_artifacts(command[1:], cwd, expected_outputs)
+    result: Dict[str, Any] = {
+        "ok": (not timed_out) and (not cancelled) and returncode == 0,
+        "name": name,
+        "kind": "process",
+        "command": command,
+        "returncode": None if timed_out else returncode,
+        "duration_s": round(duration, 3),
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "artifacts": artifacts,
+        "error": None,
+    }
+    if timed_out:
+        result["error"] = {
+            "code": ErrorCode.TIMEOUT,
+            "message": f"{name} timed out after {effective_timeout:.0f}s and was killed.",
+        }
+    elif cancelled:
+        result["error"] = {
+            "code": ErrorCode.EXECUTION_FAILED,
+            "message": f"{name} was cancelled and its process tree was killed.",
+        }
+    elif returncode != 0:
+        first_err = stderr_tail.strip().splitlines()[0] if stderr_tail.strip() else "no stderr"
+        result["error"] = {
+            "code": ErrorCode.EXECUTION_FAILED,
+            "message": f"{name} exited with code {returncode}: {first_err}",
+        }
+    return result
