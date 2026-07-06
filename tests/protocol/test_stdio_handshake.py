@@ -98,6 +98,23 @@ def test_stdio_initialize_and_tools_list(launch: list[str]) -> None:
         # the 16-tool surface is a design commitment — growth needs a decision
         assert len(names) == len(V01_TOOLS | V02_NEW_TOOLS), f"unexpected tool count: {sorted(names)}"
 
+        _rpc(proc, {"jsonrpc": "2.0", "id": 20, "method": "resources/list"})
+        resources_resp = _read_response(proc)
+        resource_uris = {r["uri"] for r in resources_resp["result"]["resources"]}
+        assert "sumo://diagnostics" in resource_uris
+        assert "sumo://guide/rl-training" in resource_uris
+
+        _rpc(proc, {"jsonrpc": "2.0", "id": 21, "method": "resources/templates/list"})
+        templates_resp = _read_response(proc)
+        template_uris = {r["uriTemplate"] for r in templates_resp["result"]["resourceTemplates"]}
+        assert "sumo://jobs/{job_id}" in template_uris
+
+        _rpc(proc, {"jsonrpc": "2.0", "id": 22, "method": "prompts/list"})
+        prompts_resp = _read_response(proc)
+        prompt_names = {p["name"] for p in prompts_resp["result"]["prompts"]}
+        assert "rl-train-and-evaluate" in prompt_names
+        assert "optimize-signals" in prompt_names
+
         # v0.2 envelope over the wire: call a tool with an unknown action
         # (deterministic, requires no SUMO) and verify the structured envelope
         # arrives as parseable JSON.

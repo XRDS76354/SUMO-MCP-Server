@@ -195,6 +195,8 @@ sumo/
 # Local sumo-rl source drop (for offline analysis; do not commit)
 sumo-rl-*/
 sumo-rl-*.zip
+!skills/src/sumo-rl-experiments/
+!skills/src/sumo-rl-experiments/SKILL.md
 
 # Private test assets (not part of OSS release)
 路网/

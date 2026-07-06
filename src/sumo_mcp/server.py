@@ -24,6 +24,13 @@ from sumo_mcp.catalog import describe_command, list_commands
 from sumo_mcp.execution import run_cli
 from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
+from sumo_mcp.resources.provider import (
+    commands_resource,
+    diagnostics_resource,
+    job_resource,
+    read_static_resource,
+    tool_catalog_resource,
+)
 from sumo_mcp.rl import create_run, list_algorithms as list_rl_algorithms_v2, list_runs, load_run
 from sumo_mcp.rl.algorithms import training_backend
 from sumo_mcp.rl.evaluation import compare_run, evaluate_run
@@ -57,6 +64,108 @@ _ENVELOPE_NOTE = (
     " Returns a structured JSON envelope: {ok, tool, summary, action?, data?, "
     "artifacts?, error{code,message,remediation}?}; `summary` is human-readable."
 )
+
+
+@server.resource("sumo://diagnostics", mime_type="application/json")
+def sumo_diagnostics_resource() -> str:
+    """Dynamic SUMO installation, command catalog, and RL dependency diagnostics."""
+    return diagnostics_resource()
+
+
+@server.resource("sumo://tool-catalog", mime_type="text/markdown")
+def sumo_tool_catalog_resource() -> str:
+    """Compact guide to the fixed 16-tool SUMO-MCP surface."""
+    return tool_catalog_resource()
+
+
+@server.resource("sumo://commands", mime_type="application/json")
+def sumo_commands_resource() -> str:
+    """Tier-1 SUMO command catalog entries with availability state."""
+    return commands_resource()
+
+
+@server.resource("sumo://guide/tool-selection", mime_type="text/markdown")
+def sumo_tool_selection_guide() -> str:
+    """Decision tree for choosing the correct SUMO-MCP tool."""
+    return read_static_resource("tool-selection.md")
+
+
+@server.resource("sumo://guide/workflows", mime_type="text/markdown")
+def sumo_workflows_guide() -> str:
+    """Common end-to-end SUMO workflow recipes."""
+    return read_static_resource("workflows.md")
+
+
+@server.resource("sumo://guide/rl-training", mime_type="text/markdown")
+def sumo_rl_training_guide() -> str:
+    """SUMO-RL algorithm selection, training loop, and common failures."""
+    return read_static_resource("rl-training.md")
+
+
+@server.resource("sumo://guide/troubleshooting", mime_type="text/markdown")
+def sumo_troubleshooting_guide() -> str:
+    """Error-code oriented troubleshooting guide."""
+    return read_static_resource("troubleshooting.md")
+
+
+@server.resource("sumo://jobs/{job_id}", mime_type="application/json")
+def sumo_job_resource(job_id: str) -> str:
+    """Read a background job manifest/result/log tail by id."""
+    return job_resource(job_id)
+
+
+@server.prompt(
+    name="build-simulation-from-scratch",
+    description="Guide an agent through abstract network, demand, route, simulation, and analysis.",
+)
+def prompt_build_simulation_from_scratch(grid_size: int = 3, sim_seconds: int = 1000) -> str:
+    return (
+        "Build a SUMO simulation from scratch. Use `manage_network(action=\"generate\")` "
+        f"with grid_number={grid_size}, then `manage_demand(action=\"generate_random\")`, "
+        "`manage_demand(action=\"compute_routes\")`, run the simulation with "
+        "`run_simple_simulation` or `run_sumo_binary(name=\"sumo\")`, and analyze outputs "
+        f"with `analyze_sumo_output`. Use sim_seconds={sim_seconds}. Return artifacts and metrics."
+    )
+
+
+@server.prompt(name="import-osm-area", description="Guide OSM bbox import into a runnable SUMO scenario.")
+def prompt_import_osm_area(bbox: str, sim_seconds: int = 1000) -> str:
+    return (
+        f"Import OSM bbox `{bbox}`. Use `manage_network(action=\"download_osm\")`, then "
+        "`manage_network(action=\"convert\")` or `run_sumo_tool(name=\"osmBuild.py\")`. "
+        "Generate demand with `manage_demand`, route with `manage_demand(action=\"compute_routes\")` "
+        f"or `run_sumo_binary(name=\"duarouter\")`, simulate for {sim_seconds}s, and analyze outputs."
+    )
+
+
+@server.prompt(name="optimize-signals", description="Guide signal baseline, optimization, and comparison.")
+def prompt_optimize_signals(net_file: str, route_file: str, sim_seconds: int = 3600) -> str:
+    return (
+        f"Optimize signals for net `{net_file}` and route `{route_file}`. Prefer "
+        "`run_workflow(workflow_name=\"signal_opt\")` for baseline-vs-optimized comparison. "
+        f"Use sim_seconds={sim_seconds}. If raw signal plans are requested, call "
+        "`optimize_traffic_signals` and explain that the output is an additional file."
+    )
+
+
+@server.prompt(name="rl-train-and-evaluate", description="Guide RL preflight, training job, evaluation, comparison.")
+def prompt_rl_train_and_evaluate(scenario_or_net: str, algorithm: str = "ql", episodes: int = 3) -> str:
+    return (
+        f"Run an RL training loop for `{scenario_or_net}` using algorithm `{algorithm}`. "
+        "First call `manage_rl_task(action=\"list_algorithms\")`, then "
+        "`manage_rl_task(action=\"validate_env\")`. Start `manage_rl_task(action=\"train\")`, "
+        "poll `manage_rl_task(action=\"status\")`, then call `manage_rl_task(action=\"evaluate\")` "
+        f"and `manage_rl_task(action=\"compare\")`. Use episodes={episodes} unless the user overrides it."
+    )
+
+
+@server.prompt(name="analyze-simulation-outputs", description="Guide structured analysis of SUMO output files.")
+def prompt_analyze_simulation_outputs(output_dir: str) -> str:
+    return (
+        f"Analyze SUMO outputs under `{output_dir}`. Prefer `analyze_sumo_output` for XML outputs "
+        "such as summary, tripinfo, fcd, queue, and emission files. Use `run_analysis` only for "
+        "legacy FCD CSV summaries. Report metrics, truncation, and artifact paths."
+    )
 
 
 def _ezdesignx_artifacts(output_dir: str) -> List[Dict[str, Any]]:
