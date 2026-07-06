@@ -110,9 +110,12 @@ Option B: download ZIP
 2. Click **Code** -> **Download ZIP**.
 3. Extract and enter the project folder.
 
-Option C: install as dependency (WIP)
+Option C: install from GitHub
 ```bash
 pip install git+https://github.com/XRDS76354/SUMO-MCP-Server.git
+
+# Or run without a persistent install:
+uvx --from git+https://github.com/XRDS76354/SUMO-MCP-Server sumo-mcp
 ```
 
 ### 2. Install and Configure SUMO

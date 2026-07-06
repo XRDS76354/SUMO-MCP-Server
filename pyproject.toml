@@ -40,8 +40,8 @@ dev = [
     "pandas-stubs>=2.0.0"
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "mypy>=1.8.0",
     "flake8>=7.0.0",
     "pytest>=8.0.0",

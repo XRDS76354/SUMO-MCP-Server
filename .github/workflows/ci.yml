@@ -25,7 +25,15 @@ jobs:
       - run: pip install -e .[dev]
       - name: flake8 (blocking)
         run: flake8 src tests
-      - name: mypy (advisory until v0.2 tool-surface rewrite settles)
+      - name: mypy (blocking v0.2 modules)
+        run: >
+          mypy --follow-imports=silent
+          src/sumo_mcp/resources
+          src/sumo_mcp/rl
+          src/sumo_mcp/server.py
+          src/sumo_mcp/mcp_tools/rl.py
+          skills/install_skills.py
+      - name: mypy (legacy debt audit, advisory)
         run: mypy src/sumo_mcp
         continue-on-error: true
 

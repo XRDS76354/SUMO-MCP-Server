@@ -112,10 +112,13 @@ cd SUMO-MCP-Server
 2. 点击 **Code** 按钮，选择 **Download ZIP**。
 3. 解压并进入项目目录。
 
-**方式 C：作为依赖安装 (WIP)**
-如果您想在其他项目中使用，可以尝试：
+**方式 C：从 GitHub 安装**
+如果您想在其他项目中使用：
 ```bash
 pip install git+https://github.com/XRDS76354/SUMO-MCP-Server.git
+
+# 或者不做持久安装，直接运行：
+uvx --from git+https://github.com/XRDS76354/SUMO-MCP-Server sumo-mcp
 ```
 
 ### 2. 安装与配置 SUMO
