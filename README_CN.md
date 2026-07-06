@@ -36,9 +36,9 @@ ezdesignX 转换说明见 [doc/EZDESIGNX_TO_SUMO_CN.md](doc/EZDESIGNX_TO_SUMO_CN
 ## 🚀 核心功能特性
 
 ### 1. 全面的工具链集成
-聚合符合直觉的核心 MCP 接口，简化 SUMO 复杂操作：
-
-![SUMO-MCP 工具列表](doc/sumo-mcp工具列表.png)
+聚合符合直觉的核心 MCP 接口，简化 SUMO 复杂操作。v0.2 权威工具清单以
+[doc/API_CN.md](doc/API_CN.md) 和 MCP resource `sumo://tool-catalog` 为准；
+旧截图仅作为历史素材保留。
 
 *   **路网管理 (`manage_network`)**: 支持路网生成 (`generate`)、OSM 地图下载 (`download_osm`)、格式转换 (`convert`) 以及 ezdesignX v1 JSON/JSONC 转换 (`convert_ezdesignx`)；同时提供专用工具 `convert_ezdesignx_network`。
 *   **需求管理 (`manage_demand`)**: 提供随机行程生成 (`generate_random`)、OD 矩阵转换 (`convert_od`) 和路径计算 (`compute_routes`)。

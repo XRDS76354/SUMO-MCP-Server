@@ -36,9 +36,9 @@ Architecture: [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md). Changelog: [CHANGELOG.
 ## Core Features
 
 ### 1. Unified Toolchain
-Core MCP interfaces are grouped into intuitive tools to simplify common SUMO operations:
-
-![SUMO-MCP Tool List](doc/sumo-mcp工具列表.png)
+Core MCP interfaces are grouped into intuitive tools to simplify common SUMO operations.
+The canonical v0.2 tool list is [doc/API.md](doc/API.md) and the MCP resource
+`sumo://tool-catalog`; older screenshots are kept only as historical media.
 
 - **Network Management (`manage_network`)**: Generate networks (`generate`), download OSM data (`download_osm`), convert formats (`convert`), and convert ezdesignX v1 JSON/JSONC (`convert_ezdesignx`). A dedicated `convert_ezdesignx_network` tool is also available.
 - **Demand Management (`manage_demand`)**: Generate random trips (`generate_random`), convert OD matrices (`convert_od`), and compute routes (`compute_routes`).
