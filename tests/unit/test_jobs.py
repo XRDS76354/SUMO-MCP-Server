@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any, Dict
 
 import pytest
 
+import sumo_mcp.execution.runner as runner_mod
+from sumo_mcp.catalog.registry import CommandSpec
 from sumo_mcp.jobs.manager import JobManager
 
 
@@ -102,7 +105,7 @@ def test_cancel_running_job(_jobs_dir: Path) -> None:
     info = manager.start_callable_job(cancellable, label="c")
     assert started.wait(5)
     cancelled = manager.cancel(info["job_id"])
-    assert cancelled is not None and cancelled["status"] == "cancelled"
+    assert cancelled is not None and cancelled["status"] == "cancelling"
     # stays cancelled even after the thread returns
     time.sleep(0.3)
     status = manager.get_status(info["job_id"])
@@ -169,3 +172,85 @@ def test_cli_job_runs_runner(monkeypatch: pytest.MonkeyPatch, _jobs_dir: Path) -
     status = _wait_status(manager, info["job_id"], {"succeeded"})
     assert status["request"]["name"] == "netgenerate"
     assert calls["kind"] == "binary" and calls["args"] == ["--grid"] and calls["timeout_s"] == 5
+
+
+def test_cli_job_cancel_kills_subprocess(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _jobs_dir: Path) -> None:
+    script = tmp_path / "sleep_tool.py"
+    script.write_text("import time\nprint('started', flush=True)\ntime.sleep(30)\n", encoding="utf-8")
+
+    def fake_resolve(name: str, kind: str | None = None) -> CommandSpec | None:
+        if name == "sleep_tool.py":
+            return CommandSpec(
+                name=name, kind="tool", tier=1, category="test", description="",
+                available=True, path=str(script),
+            )
+        return None
+
+    monkeypatch.setattr(runner_mod, "resolve_command", fake_resolve)
+    manager = JobManager()
+    info = manager.start_cli_job("tool", "sleep_tool.py", [], timeout_s=30, label="sleep")
+
+    status = _wait_status(manager, info["job_id"], {"running"})
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and "pid" not in status:
+        time.sleep(0.05)
+        status = manager.get_status(info["job_id"]) or {}
+    pid = int(status["pid"])
+    assert runner_mod.is_process_alive(pid)
+
+    cancelling = manager.cancel(info["job_id"])
+    assert cancelling is not None and cancelling["status"] == "cancelling"
+    final = _wait_status(manager, info["job_id"], {"cancelled"})
+    assert final["finished_at"]
+    assert not runner_mod.is_process_alive(pid)
+
+
+def test_historic_running_job_reconciles_and_can_be_cancelled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _jobs_dir: Path
+) -> None:
+    proc = __import__("subprocess").Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=__import__("subprocess").DEVNULL,
+        stderr=__import__("subprocess").DEVNULL,
+    )
+    job_dir = _jobs_dir / "historic"
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({
+        "job_id": "historic",
+        "label": "old",
+        "status": "running",
+        "request": {},
+        "pid": proc.pid,
+        "pgid": None,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "started_at": "2026-01-01T00:00:01+00:00",
+        "finished_at": None,
+    }), encoding="utf-8")
+
+    manager = JobManager()
+    status = manager.get_status("historic")
+    assert status is not None and status["status"] == "orphaned"
+    cancelled = manager.cancel("historic")
+    assert cancelled is not None and cancelled["status"] == "cancelled"
+    proc.wait(timeout=10)
+    assert not runner_mod.is_process_alive(proc.pid)
+
+
+def test_historic_dead_running_job_becomes_failed(_jobs_dir: Path) -> None:
+    job_dir = _jobs_dir / "dead"
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({
+        "job_id": "dead",
+        "label": "old",
+        "status": "running",
+        "request": {},
+        "pid": 99999999,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "started_at": "2026-01-01T00:00:01+00:00",
+        "finished_at": None,
+    }), encoding="utf-8")
+
+    status = JobManager().get_status("dead")
+    assert status is not None
+    assert status["status"] == "failed"
+    assert "no longer alive" in status["error"]["message"]

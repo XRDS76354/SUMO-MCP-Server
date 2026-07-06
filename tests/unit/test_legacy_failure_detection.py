@@ -36,6 +36,7 @@ REAL_FAILURE_STRINGS = [
     "Error: Could not locate SUMO executable (`sumo`).",
     # RL
     "Training failed: ModuleNotFoundError: No module named 'sumo_rl'",
+    "Algorithm ppo not yet implemented in this tool wrapper.",
     # workflow step conventions
     "Step 1 Failed: Netgenerate failed.",
     "Step 4 Failed: Could not write config file. boom",

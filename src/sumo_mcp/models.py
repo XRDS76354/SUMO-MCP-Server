@@ -136,6 +136,7 @@ def make_error(
 #   "duarouter execution error: ..." / "Simulation error: ..."
 #   "Training failed: ..." / "Step 1 Failed: ..." / "Step 4 Failed: Could not..."
 #   "Baseline Simulation Failed: ..." / "Optimized Simulation Failed: ..."
+#   "Algorithm ppo not yet implemented in this tool wrapper."
 #   "Operation 'x' timed out after Ns" / "Fatal: ..."
 _ERROR_PREFIX = re.compile(
     r"^\s*("
@@ -143,6 +144,7 @@ _ERROR_PREFIX = re.compile(
     r"|fatal\b"
     r"|training failed"
     r"|failed to\b"
+    r"|algorithm .* not yet implemented"
     r"|step \d+ failed"              # workflow step failures
     r"|(baseline|optimized) simulation failed"
     r"|\S+(\s\S+)* (failed|execution error|error)[.:\s]"  # "<tool> failed." / "<tool> execution error:"
@@ -164,7 +166,8 @@ def _infer_error_code(text: str) -> str:
         return ErrorCode.FILE_NOT_FOUND
     if "required" in lowered or "must be" in lowered or "unknown action" in lowered \
             or "unknown workflow" in lowered or "unknown method" in lowered \
-            or "unknown target" in lowered or "unknown variable" in lowered:
+            or "unknown target" in lowered or "unknown variable" in lowered \
+            or "not yet implemented" in lowered:
         return ErrorCode.INVALID_ARGUMENT
     if "connect" in lowered or "connection" in lowered:
         return ErrorCode.CONNECTION_ERROR

@@ -25,10 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from sumo_mcp.execution.runner import run_cli
+from sumo_mcp.execution.runner import is_process_alive, kill_process_tree, run_cli
 
 _MANIFEST = "manifest.json"
 _RESULT = "result.json"
+_TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
+_ACTIVE = frozenset({"pending", "running", "cancelling", "orphaned"})
 
 
 def _now() -> str:
@@ -56,6 +58,9 @@ class _Job:
         self.cancel_event = threading.Event()
 
 
+_JobFn = Callable[[_Job], Dict[str, Any]]
+
+
 class JobManager:
     def __init__(self) -> None:
         self._jobs: Dict[str, _Job] = {}
@@ -76,9 +81,13 @@ class JobManager:
     ) -> Dict[str, Any]:
         """Launch ``run_cli(...)`` in a background thread; returns job info."""
 
-        def work(cancel_event: threading.Event) -> Dict[str, Any]:
-            return run_cli(kind, name, args, cwd=cwd, timeout_s=timeout_s,
-                           expected_outputs=expected_outputs)
+        def work(job: _Job) -> Dict[str, Any]:
+            return run_cli(
+                kind, name, args, cwd=cwd, timeout_s=timeout_s,
+                expected_outputs=expected_outputs,
+                cancel_event=job.cancel_event,
+                process_callback=lambda info: self._record_process(job, info),
+            )
 
         request = {"kind": kind, "name": name, "args": list(args), "cwd": cwd,
                    "timeout_s": timeout_s, "expected_outputs": expected_outputs}
@@ -95,11 +104,11 @@ class JobManager:
 
         ``fn`` receives the job's cancel event and must return a JSON-safe dict.
         """
-        return self._start(fn, label=label, request=request or {})
+        return self._start(lambda job: fn(job.cancel_event), label=label, request=request or {})
 
     def _start(
         self,
-        fn: Callable[[threading.Event], Dict[str, Any]],
+        fn: _JobFn,
         *,
         label: str,
         request: Dict[str, Any],
@@ -126,7 +135,7 @@ class JobManager:
                 manifest["started_at"] = _now()
                 _atomic_write_json(job_dir / _MANIFEST, manifest)
             try:
-                result = fn(job.cancel_event)
+                result = fn(job)
             except Exception as exc:  # job code must not kill the thread silently
                 result = {"ok": False, "error": {"code": "EXECUTION_FAILED",
                                                  "message": f"{type(exc).__name__}: {exc}"}}
@@ -151,6 +160,15 @@ class JobManager:
 
         return {"job_id": job_id, "job_dir": str(job_dir), "label": label, "status": "pending"}
 
+    def _record_process(self, job: _Job, process_info: Dict[str, Any]) -> None:
+        with self._lock:
+            job.manifest.update({
+                "pid": process_info.get("pid"),
+                "pgid": process_info.get("pgid"),
+                "command": process_info.get("command"),
+            })
+            _atomic_write_json(job.job_dir / _MANIFEST, job.manifest)
+
     # -- inspection ------------------------------------------------------
 
     def get_status(self, job_id: str) -> Optional[Dict[str, Any]]:
@@ -158,13 +176,13 @@ class JobManager:
             job = self._jobs.get(job_id)
             if job is not None:
                 return dict(job.manifest)
-        return self._read_manifest(_jobs_root() / job_id)
+        return self._read_manifest(_jobs_root() / job_id, reconcile=True)
 
     def get_result(self, job_id: str) -> Optional[Dict[str, Any]]:
         status = self.get_status(job_id)
         if status is None:
             return None
-        if status["status"] in ("pending", "running"):
+        if status["status"] in ("pending", "running", "cancelling", "orphaned"):
             return status
         result_path = _jobs_root() / job_id / _RESULT
         if result_path.is_file():
@@ -192,13 +210,13 @@ class JobManager:
         with self._lock:
             job = self._jobs.get(job_id)
         if job is None:
-            return self.get_status(job_id)  # historic/foreign job: report as-is
-        if job.manifest["status"] in ("succeeded", "failed", "cancelled"):
+            return self._cancel_historic(job_id)
+        if job.manifest["status"] in _TERMINAL:
             return dict(job.manifest)
         job.cancel_event.set()
         with self._lock:
-            job.manifest["status"] = "cancelled"
-            job.manifest["finished_at"] = _now()
+            self._kill_manifest_process(job.manifest)
+            job.manifest["status"] = "cancelling"
             _atomic_write_json(job.job_dir / _MANIFEST, job.manifest)
         return dict(job.manifest)
 
@@ -208,7 +226,7 @@ class JobManager:
         root = _jobs_root()
         if root.is_dir():
             for job_dir in sorted(root.iterdir()):
-                manifest = self._read_manifest(job_dir)
+                manifest = self._read_manifest(job_dir, reconcile=True)
                 if manifest is not None:
                     seen[manifest["job_id"]] = manifest
         with self._lock:
@@ -217,15 +235,73 @@ class JobManager:
         return sorted(seen.values(), key=lambda m: str(m.get("created_at", "")))
 
     @staticmethod
-    def _read_manifest(job_dir: Path) -> Optional[Dict[str, Any]]:
+    def _read_manifest(job_dir: Path, *, reconcile: bool = False) -> Optional[Dict[str, Any]]:
         path = job_dir / _MANIFEST
         if not path.is_file():
             return None
         try:
             manifest: Dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+            if reconcile:
+                JobManager._reconcile_manifest(job_dir, manifest)
             return manifest
         except (OSError, json.JSONDecodeError):
             return None  # corrupted manifest: skip rather than crash listing
+
+    @staticmethod
+    def _coerce_pid(value: Any) -> Optional[int]:
+        try:
+            if value is None:
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _kill_manifest_process(manifest: Dict[str, Any]) -> None:
+        pid = JobManager._coerce_pid(manifest.get("pid"))
+        pgid = JobManager._coerce_pid(manifest.get("pgid"))
+        if pid is not None and is_process_alive(pid):
+            kill_process_tree(pid, pgid)
+
+    @staticmethod
+    def _reconcile_manifest(job_dir: Path, manifest: Dict[str, Any]) -> None:
+        if manifest.get("status") not in _ACTIVE:
+            return
+        pid = JobManager._coerce_pid(manifest.get("pid"))
+        if pid is not None and is_process_alive(pid):
+            if manifest.get("status") != "orphaned":
+                manifest["status"] = "orphaned"
+                manifest["error"] = {
+                    "code": "EXECUTION_FAILED",
+                    "message": "Job process survived an MCP server restart; cancel it explicitly if unwanted.",
+                }
+                _atomic_write_json(job_dir / _MANIFEST, manifest)
+            return
+
+        manifest["status"] = "failed"
+        manifest["finished_at"] = manifest.get("finished_at") or _now()
+        manifest["error"] = {
+            "code": "EXECUTION_FAILED",
+            "message": "Job was left running in a previous server process, but its process is no longer alive.",
+        }
+        _atomic_write_json(job_dir / _MANIFEST, manifest)
+
+    def _cancel_historic(self, job_id: str) -> Optional[Dict[str, Any]]:
+        job_dir = _jobs_root() / job_id
+        manifest = self._read_manifest(job_dir, reconcile=True)
+        if manifest is None:
+            return None
+        if manifest.get("status") in _TERMINAL:
+            return manifest
+        self._kill_manifest_process(manifest)
+        manifest["status"] = "cancelled"
+        manifest["finished_at"] = _now()
+        manifest["error"] = {
+            "code": "EXECUTION_FAILED",
+            "message": "Historic job process was cancelled and killed.",
+        }
+        _atomic_write_json(job_dir / _MANIFEST, manifest)
+        return manifest
 
 
 job_manager = JobManager()

@@ -25,6 +25,7 @@ from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
 from sumo_mcp.sessions import ALLOWED_CALLS, session_manager
 from sumo_mcp.utils.connection import connection_manager
+from sumo_mcp.utils.jsonsafe import to_json_safe
 from sumo_mcp.utils.sumo import find_sumo_binary, find_sumo_home, find_sumo_tools_dir
 from sumo_mcp.workflows.sim_gen import sim_gen_workflow
 from sumo_mcp.workflows.signal_opt import signal_opt_workflow
@@ -313,6 +314,11 @@ def _traci_invoke(session: Optional[str], domain: str, method: str, args: List[A
     return _legacy_whitelisted_call(domain, method, args)
 
 
+def _json_safe(value: Any) -> tuple[Any, List[str]]:
+    """Normalize TraCI return values before placing them in MCP envelopes."""
+    return to_json_safe(value)
+
+
 # action -> (domain, method, required param names in call order)
 _SETTER_ACTIONS: Dict[str, Any] = {
     "set_tls_phase": ("trafficlight", "setPhase", ["tls_id", "phase"]),
@@ -494,11 +500,12 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
                                   code=ErrorCode.INVALID_ARGUMENT, action=action)
             value = _traci_invoke(session, str(domain), str(method),
                                   list(params.get("args") or []))
-            json_value: Any = list(value) if isinstance(value, tuple) else value
+            json_value, warnings = _json_safe(value)
             return make_result(
                 tool, f"{domain}.{method} -> {value!r}", action=action,
                 data={"domain": domain, "method": method, "value": json_value,
                       "session": session},
+                warnings=warnings,
             )
 
     except (PermissionError, ValueError) as e:
@@ -603,9 +610,10 @@ def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None)
                     code=ErrorCode.INVALID_ARGUMENT, action=target)
             value = _traci_invoke(session, str(domain), str(method),
                                   list(params.get("args") or []))
-            json_value: Any = list(value) if isinstance(value, tuple) else value
+            json_value, warnings = _json_safe(value)
             return make_result(tool, f"{domain}.{method} -> {value!r}", action=target,
-                               data={"domain": domain, "method": method, "value": json_value})
+                               data={"domain": domain, "method": method, "value": json_value},
+                               warnings=warnings)
 
         elif target == "vehicle_variable":
             v_id = params.get("vehicle_id")
@@ -616,26 +624,49 @@ def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None)
                     code=ErrorCode.INVALID_ARGUMENT, action=target,
                 )
 
-            getters = {
+            session_getters = {
+                "speed": ("getSpeed", [v_id]),
+                "position": ("getPosition", [v_id]),
+                "acceleration": ("getAcceleration", [v_id]),
+                "lane": ("getLaneID", [v_id]),
+                "route": ("getRoute", [v_id]),
+            }
+            legacy_getters = {
                 "speed": get_vehicle_speed,
                 "position": get_vehicle_position,
                 "acceleration": get_vehicle_acceleration,
                 "lane": get_vehicle_lane,
                 "route": get_vehicle_route,
             }
-            if var not in getters:
+            if var not in session_getters:
                 return make_error(
                     tool, f"Unknown variable: {var}", code=ErrorCode.INVALID_ARGUMENT, action=target,
                 )
-            value = getters[var](v_id)
-            json_value = list(value) if isinstance(value, tuple) else value
+            if session is not None:
+                method, args = session_getters[var]
+                value = _traci_invoke(session, "vehicle", method, args)
+            else:
+                value = legacy_getters[var](v_id)
+            json_value, warnings = _json_safe(value)
             return make_result(
                 tool, f"{var.capitalize()}: {value}", action=target,
                 data={"vehicle_id": v_id, "variable": var, "value": json_value},
+                warnings=warnings,
             )
 
         elif target == "simulation":
-            info = get_simulation_info()
+            if session is not None:
+                info = {
+                    "time": _traci_invoke(session, "simulation", "getTime", []),
+                    "min_expected_number": _traci_invoke(session, "simulation", "getMinExpectedNumber", []),
+                    "departed_number": _traci_invoke(session, "simulation", "getDepartedNumber", []),
+                    "arrived_number": _traci_invoke(session, "simulation", "getArrivedNumber", []),
+                    "colliding_vehicles_number": _traci_invoke(
+                        session, "simulation", "getCollidingVehiclesNumber", []),
+                    "loaded_number": _traci_invoke(session, "simulation", "getLoadedNumber", []),
+                }
+            else:
+                info = get_simulation_info()
             return make_result(
                 tool, f"Simulation Info: {info}", action=target,
                 data={"simulation": info if isinstance(info, dict) else str(info)},
@@ -857,6 +888,14 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
 
         algorithm = str(params.get("algorithm", "ql"))
         reward_type = str(params.get("reward_type", "diff-waiting-time"))
+        if algorithm != "ql":
+            return make_error(
+                tool,
+                f"Error: train_custom only supports algorithm='ql' for v0.1 compatibility, got {algorithm!r}. "
+                "Use action='train' after installing the stage-5 RL subsystem for SB3/PettingZoo algorithms.",
+                code=ErrorCode.INVALID_ARGUMENT,
+                action=action,
+            )
 
         text = run_rl_training(
             net_file=str(net_file),

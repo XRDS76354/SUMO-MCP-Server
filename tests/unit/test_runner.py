@@ -6,6 +6,7 @@ timeout/kill, exit-code and output-capture behavior is genuinely tested.
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -130,6 +131,25 @@ def test_timeout_kills_process(fake_tool: Path) -> None:
     assert result["error"]["code"] == ErrorCode.TIMEOUT
     assert "background" in result["error"]["remediation"]
     assert result["duration_s"] < 15  # killed, not waited out
+
+
+def test_cancel_event_kills_process_and_reports_pid(fake_tool: Path) -> None:
+    cancel = threading.Event()
+    process_info = {}
+
+    def capture(info):
+        process_info.update(info)
+        cancel.set()
+
+    result = run_cli(
+        "tool", "fake_tool.py", ["--sleep"],
+        timeout_s=30, cancel_event=cancel, process_callback=capture,
+    )
+    assert process_info["pid"] > 0
+    assert "command" in process_info
+    assert result["ok"] is False
+    assert result["error"]["message"].endswith("process tree was killed.")
+    assert not runner_mod.is_process_alive(process_info["pid"])
 
 
 # --- artifact inference -----------------------------------------------------------

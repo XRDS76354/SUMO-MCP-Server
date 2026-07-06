@@ -16,9 +16,10 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from sumo_mcp.catalog import resolve_command
 from sumo_mcp.catalog.curated import GUI_COMMANDS
@@ -115,20 +116,47 @@ def _infer_artifacts(args: List[str], cwd: Optional[str],
     return found
 
 
-def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
+ProcessCallback = Callable[[Dict[str, Any]], None]
+
+
+def process_group_id(pid: int) -> Optional[int]:
+    if sys.platform == "win32":
+        return pid
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None
+
+
+def is_process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def kill_process_tree(pid: int, pgid: Optional[int] = None) -> None:
     try:
         if sys.platform == "win32":
             subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
                 capture_output=True, timeout=10,
             )
         else:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            if pgid is not None:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
     except (OSError, subprocess.SubprocessError):
         try:
-            proc.kill()
+            os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
+
+
+def _kill_process(proc: subprocess.Popen[str]) -> None:
+    kill_process_tree(proc.pid, process_group_id(proc.pid))
 
 
 def run_cli(
@@ -139,6 +167,8 @@ def run_cli(
     cwd: Optional[str] = None,
     timeout_s: Optional[float] = None,
     expected_outputs: Optional[List[Dict[str, str]]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    process_callback: Optional[ProcessCallback] = None,
 ) -> Dict[str, Any]:
     """Execute one whitelisted SUMO command and return a structured report.
 
@@ -206,18 +236,38 @@ def run_cli(
         return _error(name, kind, ErrorCode.EXECUTION_FAILED,
                       f"Failed to launch {name}: {exc}")
 
+    pgid = process_group_id(proc.pid)
+    if process_callback is not None:
+        process_callback({"pid": proc.pid, "pgid": pgid, "command": command})
+
+    stdout = ""
+    stderr = ""
+    cancelled = False
+    timed_out = False
     try:
-        stdout, stderr = proc.communicate(timeout=effective_timeout)
+        while True:
+            remaining = effective_timeout - (time.monotonic() - started)
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                _kill_process(proc)
+            if remaining <= 0:
+                timed_out = True
+                _kill_process(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                if cancelled or timed_out:
+                    continue
         returncode: Optional[int] = proc.returncode
-        timed_out = False
     except subprocess.TimeoutExpired:
-        _kill_process_tree(proc)
+        timed_out = True
+        _kill_process(proc)
         try:
             stdout, stderr = proc.communicate(timeout=10)
         except subprocess.TimeoutExpired:
             stdout, stderr = "", ""
         returncode = None
-        timed_out = True
     duration = time.monotonic() - started
 
     stdout_tail = (stdout or "")[-_TAIL_CHARS:]
@@ -225,11 +275,11 @@ def run_cli(
     artifacts = _infer_artifacts(args, cwd, expected_outputs)
 
     result: Dict[str, Any] = {
-        "ok": (not timed_out) and returncode == 0,
+        "ok": (not timed_out) and (not cancelled) and returncode == 0,
         "name": name,
         "kind": kind,
         "command": command,
-        "returncode": returncode,
+        "returncode": None if timed_out else returncode,
         "duration_s": round(duration, 3),
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
@@ -242,6 +292,11 @@ def run_cli(
             "message": f"{name} timed out after {effective_timeout:.0f}s and was killed.",
             "remediation": "Increase timeout_s, or run it as a background job "
                            "(background=true) and poll manage_sumo_jobs.",
+        }
+    elif cancelled:
+        result["error"] = {
+            "code": ErrorCode.EXECUTION_FAILED,
+            "message": f"{name} was cancelled and its process tree was killed.",
         }
     elif returncode != 0:
         first_err = stderr_tail.strip().splitlines()[0] if stderr_tail.strip() else "no stderr"

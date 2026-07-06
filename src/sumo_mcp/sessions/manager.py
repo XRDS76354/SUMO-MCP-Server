@@ -31,7 +31,7 @@ ALLOWED_CALLS: Dict[str, FrozenSet[str]] = {
         "setPhase", "setProgram", "setPhaseDuration", "setRedYellowGreenState",
     }),
     "vehicle": frozenset({
-        "getIDList", "getSpeed", "getPosition", "getLaneID", "getRoadID",
+        "getIDList", "getSpeed", "getPosition", "getAcceleration", "getLaneID", "getRoadID",
         "getRoute", "getWaitingTime", "getAccumulatedWaitingTime", "getCO2Emission",
         "setSpeed", "slowDown", "setStop", "resume", "rerouteTraveltime",
         "changeTarget", "add", "remove", "changeLane", "setRouteID",

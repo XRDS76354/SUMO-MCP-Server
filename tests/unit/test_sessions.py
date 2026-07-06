@@ -164,7 +164,9 @@ def test_call_whitelist(fake_traci: _FakeTraci) -> None:
 def test_whitelist_covers_industry_surface() -> None:
     assert "setPhase" in ALLOWED_CALLS["trafficlight"]
     assert "setRedYellowGreenState" in ALLOWED_CALLS["trafficlight"]
-    assert {"setSpeed", "rerouteTraveltime", "add", "remove", "changeLane"} <= ALLOWED_CALLS["vehicle"]
+    assert {
+        "getAcceleration", "setSpeed", "rerouteTraveltime", "add", "remove", "changeLane",
+    } <= ALLOWED_CALLS["vehicle"]
     assert "getLastStepVehicleNumber" in ALLOWED_CALLS["inductionloop"]
     assert "getJamLengthMeters" in ALLOWED_CALLS["lanearea"]
 

@@ -454,6 +454,108 @@ def test_manage_rl_task_scenario_not_found(monkeypatch: pytest.MonkeyPatch) -> N
     assert env["ok"] is False and env["error"]["code"] == ErrorCode.FILE_NOT_FOUND
 
 
+def test_manage_rl_task_train_custom_rejects_non_ql_algorithm() -> None:
+    env = srv.manage_rl_task("train_custom", {
+        "net_file": "net.xml", "route_file": "route.xml", "algorithm": "ppo",
+    })
+    check_envelope(env)
+    assert env["ok"] is False
+    assert env["error"]["code"] == ErrorCode.INVALID_ARGUMENT
+    assert "algorithm='ql'" in env["summary"]
+
+
+# --- stage 4.1 named-session query regressions -----------------------------------
+
+
+def test_query_vehicle_variable_uses_named_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def fake_invoke(session, domain, method, args):
+        calls.append((session, domain, method, args))
+        assert session == "base"
+        return {"getSpeed": 12.5, "getPosition": (1.0, 2.0)}[method]
+
+    monkeypatch.setattr(srv, "_traci_invoke", fake_invoke)
+    monkeypatch.setattr(srv, "get_vehicle_speed", lambda vehicle_id: (_ for _ in ()).throw(
+        AssertionError("global getter must not be used for named sessions")
+    ))
+
+    env = srv.query_simulation_state("vehicle_variable", {
+        "session": "base", "vehicle_id": "veh0", "variable": "speed",
+    })
+    check_envelope(env)
+    assert env["ok"] is True
+    assert env["data"]["value"] == 12.5
+    assert calls == [("base", "vehicle", "getSpeed", ["veh0"])]
+
+
+def test_query_simulation_uses_named_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    values = {
+        "getTime": 42.0,
+        "getMinExpectedNumber": 3,
+        "getDepartedNumber": 5,
+        "getArrivedNumber": 2,
+        "getCollidingVehiclesNumber": 0,
+        "getLoadedNumber": 7,
+    }
+    calls = []
+
+    def fake_invoke(session, domain, method, args):
+        calls.append((session, domain, method, args))
+        assert session == "opt"
+        assert domain == "simulation"
+        return values[method]
+
+    monkeypatch.setattr(srv, "_traci_invoke", fake_invoke)
+    monkeypatch.setattr(srv, "get_simulation_info", lambda: (_ for _ in ()).throw(
+        AssertionError("global simulation getter must not be used for named sessions")
+    ))
+
+    env = srv.query_simulation_state("simulation", {"session": "opt"})
+    check_envelope(env)
+    assert env["ok"] is True
+    assert env["data"]["simulation"]["time"] == 42.0
+    assert {call[2] for call in calls} == set(values)
+
+
+def test_traci_call_results_are_recursively_json_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakePhase:
+        def __init__(self) -> None:
+            self.duration = 31
+            self.state = "Gr"
+            self.minDur = 5
+            self.maxDur = 60
+            self.next = (1, 2)
+            self.name = "main"
+
+    class FakeLogic:
+        def __init__(self) -> None:
+            self.programID = "prog"
+            self.type = 0
+            self.currentPhaseIndex = 0
+            self.subParameter = {"k": "v"}
+            self.phases = (FakePhase(),)
+
+    monkeypatch.setattr(srv, "_traci_invoke", lambda *a: (FakeLogic(),))
+
+    env = srv.query_simulation_state("call", {
+        "session": "base", "domain": "trafficlight",
+        "method": "getAllProgramLogics", "args": ["tls0"],
+    })
+    check_envelope(env)
+    assert env["ok"] is True
+    value = env["data"]["value"]
+    assert value[0]["program_id"] == "prog"
+    assert value[0]["phases"][0]["state"] == "Gr"
+
+    env = srv.control_simulation("call", {
+        "session": "base", "domain": "trafficlight",
+        "method": "getAllProgramLogics", "args": ["tls0"],
+    })
+    check_envelope(env)
+    assert env["data"]["value"][0]["phases"][0]["duration"] == 31
+
+
 # --- get_sumo_info / run_simple_simulation / run_analysis ------------------------
 
 
