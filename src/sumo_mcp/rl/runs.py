@@ -74,6 +74,13 @@ def load_config(run_dir: str) -> Dict[str, Any]:
     return loaded
 
 
+def update_config(run_dir: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    config = load_config(run_dir)
+    config.update(updates)
+    _atomic_write(Path(run_dir).expanduser().resolve() / CONFIG_FILE, config)
+    return config
+
+
 def update_run(run_dir: str, updates: Dict[str, Any]) -> Dict[str, Any]:
     manifest = load_run(run_dir)
     manifest.update(updates)

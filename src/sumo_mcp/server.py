@@ -25,8 +25,9 @@ from sumo_mcp.execution import run_cli
 from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
 from sumo_mcp.rl import create_run, list_algorithms as list_rl_algorithms_v2, list_runs, load_run
+from sumo_mcp.rl.evaluation import compare_run, evaluate_run
 from sumo_mcp.rl.preflight import validate_rl_environment
-from sumo_mcp.rl.runs import load_config, update_run
+from sumo_mcp.rl.runs import latest_checkpoint, load_config, update_config, update_run
 from sumo_mcp.sessions import ALLOWED_CALLS, session_manager
 from sumo_mcp.utils.connection import connection_manager
 from sumo_mcp.utils.jsonsafe import to_json_safe
@@ -991,6 +992,8 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             return make_error(tool, f"Error: cannot resume run: {exc}",
                               code=ErrorCode.INVALID_ARGUMENT, action=action)
         config["episodes"] = extra_episodes
+        config["resume_checkpoint"] = latest_checkpoint(run_dir)
+        update_config(run_dir, config)
         update_run(run_dir, {"status": "queued"})
         command = [sys.executable, "-m", "sumo_mcp.rl.train_entry", str(Path(run_dir).resolve())]
         info = job_manager.start_process_job(
@@ -1001,6 +1004,71 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
         update_run(run_dir, {"job_id": info["job_id"]})
         return make_result(tool, f"Started RL resume job {info['job_id']}.", action=action,
                            data={"run": load_run(run_dir), "job": info}, job_id=info["job_id"])
+
+    elif action == "evaluate":
+        run_dir_raw = params.get("run_dir")
+        if not run_dir_raw:
+            return _invalid("Error: run_dir required for evaluate")
+        run_dir_eval = str(run_dir_raw)
+        try:
+            episodes = _int_param("episodes", 1)
+        except ValueError as exc:
+            return _invalid(f"Error: {exc}")
+        checkpoint_raw = params.get("checkpoint")
+        result = evaluate_run(
+            run_dir_eval,
+            episodes=episodes,
+            checkpoint=str(checkpoint_raw) if checkpoint_raw else None,
+        )
+        if not result["ok"]:
+            raw_error_eval = result.get("error")
+            if isinstance(raw_error_eval, dict):
+                error_message_eval = str(raw_error_eval.get("message", "Evaluation failed."))
+                error_code_eval = raw_error_eval.get("code", ErrorCode.EXECUTION_FAILED)
+            else:
+                error_message_eval = "Evaluation failed."
+                error_code_eval = ErrorCode.EXECUTION_FAILED
+            return make_error(
+                tool,
+                error_message_eval,
+                code=error_code_eval,
+                action=action,
+            )
+        return make_result(
+            tool, result["summary"], action=action, metrics=result["metrics"],
+            artifacts=[artifact(result["artifact"], "rl_evaluation")],
+            data={"run_dir": run_dir_eval, "evaluation_file": result["artifact"]},
+        )
+
+    elif action == "compare":
+        run_dir_raw = params.get("run_dir")
+        if not run_dir_raw:
+            return _invalid("Error: run_dir required for compare")
+        run_dir_compare = str(run_dir_raw)
+        try:
+            episodes = _int_param("episodes", 1)
+        except ValueError as exc:
+            return _invalid(f"Error: {exc}")
+        result = compare_run(run_dir_compare, episodes=episodes)
+        if not result["ok"]:
+            raw_error_compare = result.get("error")
+            if isinstance(raw_error_compare, dict):
+                error_message_compare = str(raw_error_compare.get("message", "Comparison failed."))
+                error_code_compare = raw_error_compare.get("code", ErrorCode.EXECUTION_FAILED)
+            else:
+                error_message_compare = "Comparison failed."
+                error_code_compare = ErrorCode.EXECUTION_FAILED
+            return make_error(
+                tool,
+                error_message_compare,
+                code=error_code_compare,
+                action=action,
+            )
+        return make_result(
+            tool, result["summary"], action=action, metrics=result["metrics"],
+            artifacts=[artifact(result["artifact"], "rl_comparison")],
+            data={"run_dir": run_dir_compare, "comparison_file": result["artifact"]},
+        )
 
     elif action == "status":
         run_dir_raw = params.get("run_dir")

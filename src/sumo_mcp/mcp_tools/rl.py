@@ -1,9 +1,10 @@
 import os
+import pickle
 import threading
 from contextlib import contextmanager
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Iterator, List, Optional, Tuple
 
 from sumo_mcp.utils.traci import ensure_traci_start_stdout_suppressed
 
@@ -148,7 +149,9 @@ def run_rl_training(
     episodes: int = 1,
     steps_per_episode: int = 1000,
     algorithm: str = "ql",
-    reward_type: str = "diff-waiting-time"
+    reward_type: str = "diff-waiting-time",
+    checkpoint_dir: Optional[str] = None,
+    resume_checkpoint: Optional[str] = None,
 ) -> str:
     """
     Run a basic RL training session using Q-Learning (default) or other algorithms.
@@ -205,7 +208,7 @@ def run_rl_training(
         )
 
         @contextmanager
-        def _pushd(path: str):
+        def _pushd(path: str) -> Iterator[None]:
             orig_cwd = os.getcwd()
             os.chdir(path)
             try:
@@ -267,6 +270,31 @@ def run_rl_training(
 
                 agents: dict[str, QLAgent] = {}
                 info_log: list[str] = []
+                loaded_q_tables: dict[str, object] = {}
+                if resume_checkpoint:
+                    with open(resume_checkpoint, "rb") as f:
+                        loaded = pickle.load(f)
+                    if isinstance(loaded, dict):
+                        raw_tables = loaded.get("q_tables", loaded)
+                        if isinstance(raw_tables, dict):
+                            loaded_q_tables = raw_tables
+
+                checkpoint_path = None
+                if checkpoint_dir:
+                    os.makedirs(checkpoint_dir, exist_ok=True)
+
+                def _save_checkpoint(ep_num: int) -> Optional[str]:
+                    if not checkpoint_dir:
+                        return None
+                    path = os.path.join(checkpoint_dir, f"q_table_ep{ep_num}.pkl")
+                    payload = {
+                        "algorithm": "ql",
+                        "episode": ep_num,
+                        "q_tables": {ts_id: getattr(agent, "q_table", {}) for ts_id, agent in agents.items()},
+                    }
+                    with open(path, "wb") as f:
+                        pickle.dump(payload, f)
+                    return path
 
                 for ep in range(1, episodes + 1):
                     if cancel_event.is_set():
@@ -303,6 +331,8 @@ def run_rl_training(
                                 alpha=0.1,
                                 gamma=0.99,
                             )
+                            if ts_id in loaded_q_tables:
+                                agents[ts_id].q_table = loaded_q_tables[ts_id]
                         else:
                             agent = agents[ts_id]
                             if state not in agent.q_table:
@@ -378,10 +408,15 @@ def run_rl_training(
                         decision_steps += 1
 
                     info_log.append(f"Episode {ep}/{episodes}: Total Reward = {ep_total_reward:.2f}")
+                    saved = _save_checkpoint(ep)
+                    if saved:
+                        checkpoint_path = saved
 
                 # sumo-rl only auto-saves metrics for the previous episode on reset().
                 # Save the last episode explicitly.
                 env.save_csv(env.out_csv_name, env.episode)
+                if checkpoint_path:
+                    info_log.append(f"Checkpoint: {checkpoint_path}")
 
                 return "\n".join(info_log)
             finally:

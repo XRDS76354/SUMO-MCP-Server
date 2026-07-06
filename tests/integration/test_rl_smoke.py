@@ -86,3 +86,12 @@ def test_ql_training_job_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert manifest["status"] == "succeeded"
     assert Path(manifest["config_file"]).is_file()
     assert Path(manifest["metrics_file"]).is_file()
+    assert Path(manifest["latest_checkpoint"]).is_file()
+
+    eval_env = srv.manage_rl_task("evaluate", {"run_dir": str(run_dir), "episodes": 1})
+    assert eval_env["ok"] is True, eval_env
+    assert "mean_total_reward" in eval_env["metrics"]
+
+    compare_env = srv.manage_rl_task("compare", {"run_dir": str(run_dir), "episodes": 1})
+    assert compare_env["ok"] is True, compare_env
+    assert "mean_reward_delta" in compare_env["metrics"]

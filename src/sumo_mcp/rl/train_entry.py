@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from sumo_mcp.mcp_tools.rl import run_rl_training
-from sumo_mcp.rl.runs import load_config, update_run
+from sumo_mcp.rl.runs import latest_checkpoint, load_config, update_run
 from sumo_mcp.utils.sumo import find_sumo_home
 
 
@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
             os.environ.setdefault("SUMO_HOME", home)
 
         update_run(str(run_dir), {"status": "running"})
+        checkpoint_dir = run_dir / "checkpoints"
+        resume_checkpoint = config.get("resume_checkpoint")
         text = run_rl_training(
             net_file=str(config["net_file"]),
             route_file=str(config["route_file"]),
@@ -49,16 +51,21 @@ def main(argv: list[str] | None = None) -> int:
             steps_per_episode=int(config.get("steps_per_episode", 1000)),
             algorithm=str(config.get("algorithm", "ql")),
             reward_type=str(config.get("reward_type", "diff-waiting-time")),
+            checkpoint_dir=str(checkpoint_dir),
+            resume_checkpoint=str(resume_checkpoint) if resume_checkpoint else None,
         )
         ok = not text.lstrip().lower().startswith(("error", "training failed", "algorithm "))
         metrics_file = _copy_metrics(run_dir)
+        checkpoint = latest_checkpoint(str(run_dir))
         update_run(str(run_dir), {
             "status": "succeeded" if ok else "failed",
             "episodes_done": int(config.get("episodes", 1)) if ok else 0,
             "metrics_file": metrics_file or str(run_dir / "metrics.csv"),
+            "final_model": checkpoint,
+            "latest_checkpoint": checkpoint,
             "training_summary": text,
         })
-        payload = _result(ok, text, run_dir=str(run_dir), metrics_file=metrics_file)
+        payload = _result(ok, text, run_dir=str(run_dir), metrics_file=metrics_file, checkpoint=checkpoint)
         print(json.dumps(payload, ensure_ascii=False), flush=True)
         return 0 if ok else 1
     except Exception as exc:

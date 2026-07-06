@@ -8,6 +8,7 @@ from typing import Any, Dict
 import pytest
 
 import sumo_mcp.rl.preflight as preflight
+import sumo_mcp.rl.evaluation as evaluation
 import sumo_mcp.rl.train_entry as train_entry
 import sumo_mcp.server as srv
 from sumo_mcp.models import ErrorCode
@@ -151,7 +152,13 @@ def test_train_entry_updates_run_manifest(
     }, run_id="entry")
     run_dir = Path(run["run_dir"])
     (run_dir / "train_results_conn0_ep1.csv").write_text("episode,reward\n1,-1\n", encoding="utf-8")
-    monkeypatch.setattr(train_entry, "run_rl_training", lambda **kwargs: "Episode 1/1: Total Reward = -1.00")
+
+    def fake_train(**kwargs):
+        assert kwargs["checkpoint_dir"] == str(run_dir / "checkpoints")
+        (run_dir / "checkpoints" / "q_table_ep1.pkl").write_bytes(b"pickle-ish")
+        return "Episode 1/1: Total Reward = -1.00"
+
+    monkeypatch.setattr(train_entry, "run_rl_training", fake_train)
     rc = train_entry.main([str(run_dir)])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
@@ -159,3 +166,80 @@ def test_train_entry_updates_run_manifest(
     manifest = load_run(str(run_dir))
     assert manifest["status"] == "succeeded"
     assert Path(manifest["metrics_file"]).is_file()
+    assert Path(manifest["latest_checkpoint"]).name == "q_table_ep1.pkl"
+
+
+def test_resume_sets_latest_checkpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run = create_run(str(tmp_path / "runs"), {
+        "net_file": "n", "route_file": "r", "algorithm": "ql", "episodes": 1,
+    }, run_id="resume")
+    ckpt = Path(run["run_dir"]) / "checkpoints" / "q_table_ep1.pkl"
+    ckpt.write_text("x")
+    captured: Dict[str, Any] = {}
+    monkeypatch.setattr(srv.job_manager, "start_process_job", lambda command, **kwargs: captured.setdefault(
+        "job", {"job_id": "resume-job", "job_dir": "j", "label": kwargs["label"], "status": "pending"}
+    ))
+
+    env = srv.manage_rl_task("resume", {"run_dir": run["run_dir"], "episodes": 3})
+    assert env["ok"] is True
+    assert load_config(run["run_dir"])["resume_checkpoint"] == str(ckpt)
+
+
+class _FakeEvalEnv:
+    delta_time = 1
+    ts_ids = ["tls0"]
+
+    def __init__(self) -> None:
+        self.steps = 0
+
+    def reset(self):
+        self.steps = 0
+        return {"tls0": "s0"}
+
+    def encode(self, obs, ts_id):
+        return obs
+
+    def step(self, actions):
+        self.steps += 1
+        reward = 10.0 if actions == {"tls0": 1} else 1.0
+        done = self.steps >= 1
+        return {"tls0": "s1"}, {"tls0": reward}, {"__all__": done, "tls0": done}, {}
+
+    def close(self) -> None:
+        pass
+
+
+def test_evaluate_and_compare_with_fake_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pickle
+
+    run = create_run(str(tmp_path / "runs"), {
+        "net_file": "n", "route_file": "r", "algorithm": "ql", "steps_per_episode": 5,
+    }, run_id="eval")
+    ckpt = Path(run["run_dir"]) / "checkpoints" / "q_table_ep1.pkl"
+    with ckpt.open("wb") as f:
+        pickle.dump({"q_tables": {"tls0": {"s0": [0.0, 5.0]}}}, f)
+    update_run(run["run_dir"], {"latest_checkpoint": str(ckpt), "final_model": str(ckpt)})
+    monkeypatch.setattr(evaluation, "_make_env", lambda config, run_dir: _FakeEvalEnv())
+
+    result = evaluation.evaluate_run(run["run_dir"], episodes=1)
+    assert result["ok"] is True
+    assert result["metrics"]["mean_total_reward"] == 10.0
+    result = evaluation.compare_run(run["run_dir"], episodes=1)
+    assert result["ok"] is True
+    assert result["metrics"]["mean_reward_delta"] == 9.0
+
+
+def test_manage_rl_task_evaluate_and_compare(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run = create_run(str(tmp_path / "runs"), {"algorithm": "ql"}, run_id="eval-action")
+    eval_file = Path(run["run_dir"]) / "evaluation.json"
+    eval_file.write_text("{}")
+    monkeypatch.setattr(srv, "evaluate_run", lambda *a, **k: {
+        "ok": True, "summary": "evaluated", "metrics": {"mean_total_reward": 1.0}, "artifact": str(eval_file),
+    })
+    monkeypatch.setattr(srv, "compare_run", lambda *a, **k: {
+        "ok": True, "summary": "compared", "metrics": {"mean_reward_delta": 1.0}, "artifact": str(eval_file),
+    })
+    env = srv.manage_rl_task("evaluate", {"run_dir": run["run_dir"]})
+    assert env["ok"] is True and env["metrics"]["mean_total_reward"] == 1.0
+    env = srv.manage_rl_task("compare", {"run_dir": run["run_dir"]})
+    assert env["ok"] is True and env["metrics"]["mean_reward_delta"] == 1.0
