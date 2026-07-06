@@ -29,6 +29,14 @@ V01_TOOLS = {
     "run_analysis",
 }
 
+V02_NEW_TOOLS = {
+    "list_sumo_commands",
+    "run_sumo_binary",
+    "run_sumo_tool",
+    "analyze_sumo_output",
+    "manage_sumo_jobs",
+}
+
 
 def _rpc(proc: subprocess.Popen, payload: dict) -> None:
     assert proc.stdin is not None
@@ -85,6 +93,10 @@ def test_stdio_initialize_and_tools_list(launch: list[str]) -> None:
 
         missing = V01_TOOLS - names
         assert not missing, f"v0.1 tools missing from tools/list: {sorted(missing)}"
+        missing_v02 = V02_NEW_TOOLS - names
+        assert not missing_v02, f"v0.2 tools missing from tools/list: {sorted(missing_v02)}"
+        # the 16-tool surface is a design commitment — growth needs a decision
+        assert len(names) == len(V01_TOOLS | V02_NEW_TOOLS), f"unexpected tool count: {sorted(names)}"
 
         # v0.2 envelope over the wire: call a tool with an unknown action
         # (deterministic, requires no SUMO) and verify the structured envelope

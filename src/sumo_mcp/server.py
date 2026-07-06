@@ -18,7 +18,12 @@ from sumo_mcp.mcp_tools.vehicle import (
     get_simulation_info
 )
 from sumo_mcp.mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
+from sumo_mcp.analysis import analyze_output
+from sumo_mcp.catalog import describe_command, list_commands
+from sumo_mcp.execution import run_cli
+from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
+from sumo_mcp.sessions import ALLOWED_CALLS, session_manager
 from sumo_mcp.utils.connection import connection_manager
 from sumo_mcp.utils.sumo import find_sumo_binary, find_sumo_home, find_sumo_tools_dir
 from sumo_mcp.workflows.sim_gen import sim_gen_workflow
@@ -286,18 +291,76 @@ def manage_demand(action: str, net_file: str, output_file: str, params: Optional
 # --- 3. Simulation Control ---
 
 
-@server.tool(description="Control SUMO simulation via TraCI (connect, step, disconnect)." + _ENVELOPE_NOTE)
+def _legacy_whitelisted_call(domain: str, method: str, args: List[Any]) -> Any:
+    """Run one whitelisted TraCI call on the v0.1 global connection."""
+    allowed = ALLOWED_CALLS.get(domain)
+    if allowed is None:
+        raise PermissionError(
+            f"TraCI domain {domain!r} is not exposed. Available: {sorted(ALLOWED_CALLS)}"
+        )
+    if method not in allowed:
+        raise PermissionError(
+            f"Method {domain}.{method} is not whitelisted. Allowed for {domain}: {sorted(allowed)}"
+        )
+    import traci
+    return getattr(getattr(traci, domain), method)(*args)
+
+
+def _traci_invoke(session: Optional[str], domain: str, method: str, args: List[Any]) -> Any:
+    """Dispatch a whitelisted TraCI call to a named session or the legacy connection."""
+    if session is not None:
+        return session_manager.call(session, domain, method, args)
+    return _legacy_whitelisted_call(domain, method, args)
+
+
+# action -> (domain, method, required param names in call order)
+_SETTER_ACTIONS: Dict[str, Any] = {
+    "set_tls_phase": ("trafficlight", "setPhase", ["tls_id", "phase"]),
+    "set_tls_program": ("trafficlight", "setProgram", ["tls_id", "program_id"]),
+    "set_tls_state": ("trafficlight", "setRedYellowGreenState", ["tls_id", "state"]),
+    "set_tls_phase_duration": ("trafficlight", "setPhaseDuration", ["tls_id", "duration"]),
+    "set_vehicle_speed": ("vehicle", "setSpeed", ["vehicle_id", "speed"]),
+    "slow_down_vehicle": ("vehicle", "slowDown", ["vehicle_id", "speed", "duration"]),
+    "reroute_vehicle": ("vehicle", "rerouteTraveltime", ["vehicle_id"]),
+    "change_vehicle_target": ("vehicle", "changeTarget", ["vehicle_id", "edge_id"]),
+    "resume_vehicle": ("vehicle", "resume", ["vehicle_id"]),
+    "remove_vehicle": ("vehicle", "remove", ["vehicle_id"]),
+    "change_lane": ("vehicle", "changeLane", ["vehicle_id", "lane_index", "duration"]),
+}
+
+
+@server.tool(description=(
+    "Control SUMO simulation via TraCI: connect/step/disconnect, named multi-session "
+    "management, online traffic-signal and vehicle intervention (setters). Without the "
+    "`session` param the v0.1 single global connection is used; pass session=<label> "
+    "to target a named session (open one via action='connect' with session=<label>)."
+    + _ENVELOPE_NOTE))
 def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> Envelope:
     """
-    actions:
+    Connection actions:
     - connect: params={'config_file': str, 'gui': bool, 'port': int (default 8813),
-      'host': str (default 'localhost'), 'timeout_s'|'timeout': float}
-      (omit config_file to attach to an already-running SUMO instance)
-    - step: params={'step': float, 'timeout_s'?: float}
-    - disconnect: params={'timeout_s'?: float}
+      'host': str, 'timeout_s'|'timeout': float, 'session'?: str, 'options'?: [str]}
+      Without 'session': v0.1 global connection (omit config_file to attach to a
+      running SUMO). With 'session': opens a named parallel session (config_file required).
+    - step: params={'step': float (legacy: target time), 'steps': int (session: step count),
+      'timeout_s'?: float, 'session'?: str}
+    - disconnect: params={'timeout_s'?: float, 'session'?: str}
+    - list_sessions / close_all_sessions: no params
+
+    Online intervention actions (all accept 'session'; without it the global connection):
+    - set_tls_phase {tls_id, phase} / set_tls_program {tls_id, program_id}
+    - set_tls_state {tls_id, state} (e.g. "GrGr") / set_tls_phase_duration {tls_id, duration}
+    - set_vehicle_speed {vehicle_id, speed} (-1 returns control to the car-following model)
+    - slow_down_vehicle {vehicle_id, speed, duration}
+    - stop_vehicle {vehicle_id, edge_id, pos?, lane_index?, duration?} / resume_vehicle {vehicle_id}
+    - reroute_vehicle {vehicle_id} / change_vehicle_target {vehicle_id, edge_id}
+    - add_vehicle {vehicle_id, route_id, type_id?, depart?} / remove_vehicle {vehicle_id}
+    - change_lane {vehicle_id, lane_index, duration}
+    - call {domain, method, args?}: any whitelisted TraCI method (see error hints for the whitelist)
     """
     tool = "control_simulation"
     params = params or {}
+    session = params.get("session")
 
     try:
         timeout_s_raw = params.get("timeout_s", params.get("timeout"))
@@ -314,6 +377,21 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
         if action == "connect":
             config_file = params.get("config_file")
             gui = params.get("gui", False)
+            if session is not None:
+                if not config_file:
+                    return make_error(
+                        tool, "Error: config_file required when opening a named session",
+                        code=ErrorCode.INVALID_ARGUMENT, action=action,
+                    )
+                info = session_manager.open(
+                    str(config_file), label=str(session), gui=bool(gui),
+                    extra_args=params.get("options"),
+                    timeout_s=timeout_s if timeout_s is not None else 60.0,
+                )
+                return make_result(
+                    tool, f"Session '{info.label}' connected to SUMO.", action=action,
+                    data=info.to_dict(),
+                )
             port = params.get("port", 8813)
             host = params.get("host", "localhost")
             if timeout_s is None:
@@ -327,6 +405,13 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
             )
 
         elif action == "step":
+            if session is not None:
+                steps = int(params.get("steps", params.get("step", 1)) or 1)
+                result = session_manager.step(str(session), steps=steps)
+                return make_result(
+                    tool, f"Session '{result['label']}' advanced to t={result['sim_time']}.",
+                    action=action, data=result,
+                )
             step = params.get("step", 0)
             if timeout_s is None:
                 connection_manager.simulation_step(step)
@@ -335,12 +420,94 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
             return make_result(tool, "Simulation advanced.", action=action, data={"step": step})
 
         elif action == "disconnect":
+            if session is not None:
+                closed = session_manager.close(str(session))
+                return make_result(
+                    tool, f"Session '{closed['label']}' closed.", action=action, data=closed,
+                )
             if timeout_s is None:
                 connection_manager.disconnect()
             else:
                 connection_manager.disconnect(timeout_s=timeout_s)
             return make_result(tool, "Successfully disconnected from SUMO.", action=action)
 
+        elif action == "list_sessions":
+            sessions = session_manager.list_sessions()
+            return make_result(
+                tool, f"{len(sessions)} active session(s).", action=action,
+                data={"sessions": sessions},
+            )
+
+        elif action == "close_all_sessions":
+            count = session_manager.close_all()
+            return make_result(tool, f"Closed {count} session(s).", action=action,
+                               data={"closed": count})
+
+        elif action in _SETTER_ACTIONS:
+            domain, method, required = _SETTER_ACTIONS[action]
+            args = []
+            for key in required:
+                if key not in params:
+                    return make_error(
+                        tool, f"Error: {key} required for {action}",
+                        code=ErrorCode.INVALID_ARGUMENT, action=action,
+                    )
+                args.append(params[key])
+            _traci_invoke(session, domain, method, args)
+            return make_result(
+                tool, f"{action} applied.", action=action,
+                data={"domain": domain, "method": method, "args": args, "session": session},
+            )
+
+        elif action == "stop_vehicle":
+            for key in ("vehicle_id", "edge_id"):
+                if key not in params:
+                    return make_error(tool, f"Error: {key} required for stop_vehicle",
+                                      code=ErrorCode.INVALID_ARGUMENT, action=action)
+            args = [params["vehicle_id"], params["edge_id"],
+                    float(params.get("pos", 1.0)), int(params.get("lane_index", 0)),
+                    float(params.get("duration", 2 ** 30))]
+            _traci_invoke(session, "vehicle", "setStop", args)
+            return make_result(tool, "stop_vehicle applied.", action=action,
+                               data={"args": args, "session": session})
+
+        elif action == "add_vehicle":
+            for key in ("vehicle_id", "route_id"):
+                if key not in params:
+                    return make_error(tool, f"Error: {key} required for add_vehicle",
+                                      code=ErrorCode.INVALID_ARGUMENT, action=action)
+            args = [params["vehicle_id"], params["route_id"]]
+            kwargs_pos = {"typeID": params.get("type_id", "DEFAULT_VEHTYPE"),
+                          "depart": str(params.get("depart", "now"))}
+            # vehicle.add(vehID, routeID, typeID=..., depart=...) — positional call keeps
+            # the whitelist executor simple.
+            _traci_invoke(session, "vehicle", "add",
+                          args + [kwargs_pos["typeID"], kwargs_pos["depart"]])
+            return make_result(tool, "add_vehicle applied.", action=action,
+                               data={"args": args, **kwargs_pos, "session": session})
+
+        elif action == "call":
+            domain = params.get("domain")
+            method = params.get("method")
+            if not domain or not method:
+                return make_error(tool, "Error: domain and method required for call",
+                                  code=ErrorCode.INVALID_ARGUMENT, action=action)
+            value = _traci_invoke(session, str(domain), str(method),
+                                  list(params.get("args") or []))
+            json_value: Any = list(value) if isinstance(value, tuple) else value
+            return make_result(
+                tool, f"{domain}.{method} -> {value!r}", action=action,
+                data={"domain": domain, "method": method, "value": json_value,
+                      "session": session},
+            )
+
+    except (PermissionError, ValueError) as e:
+        return make_error(tool, f"Error: {e}", code=ErrorCode.INVALID_ARGUMENT, action=action)
+    except KeyError as e:
+        return make_error(tool, f"Error: {e.args[0] if e.args else e}",
+                          code=ErrorCode.SESSION_NOT_FOUND, action=action)
+    except TimeoutError as e:
+        return make_error(tool, f"Error: {e}", code=ErrorCode.TIMEOUT, action=action)
     except Exception as e:
         return make_error(
             tool, f"Error in control_simulation ({action}): {type(e).__name__}: {e}",
@@ -352,26 +519,93 @@ def control_simulation(action: str, params: Optional[Dict[str, Any]] = None) -> 
 # --- 4. Query State ---
 
 
-@server.tool(description="Query simulation state (vehicles, speed, position). Requires active TraCI connection."
-             + _ENVELOPE_NOTE)
+@server.tool(description=(
+    "Query simulation state: vehicles, traffic lights, detectors, simulation counters. "
+    "Requires an active TraCI connection. Without the `session` param the v0.1 global "
+    "connection is queried; pass session=<label> for a named session." + _ENVELOPE_NOTE))
 def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None) -> Envelope:
     """
-    targets:
+    targets (all accept optional 'session'):
     - vehicle_list | vehicles: no params
     - vehicle_variable: params={'vehicle_id': str,
       'variable': 'speed'|'position'|'lane'|'acceleration'|'route'}
     - simulation: no params
+    - traffic_lights: params={'tls_id'?: str} — all TLS ids, or one TLS's
+      phase/program/state/next switch
+    - detectors: params={'kind': 'induction'|'lanearea' (default induction),
+      'detector_id'?: str} — detector ids or one detector's readings
+    - call: params={'domain', 'method' (getter only), 'args'?} — any whitelisted
+      TraCI getter
     """
     tool = "query_simulation_state"
     params = params or {}
+    session = params.get("session")
 
     try:
         if target == "vehicle_list" or target == "vehicles":
-            vehs = get_vehicles()
+            if session is not None:
+                vehs = list(_traci_invoke(session, "vehicle", "getIDList", []))
+            else:
+                vehs = get_vehicles()
             return make_result(
                 tool, f"Active vehicles: {vehs}", action=target,
                 data={"vehicles": list(vehs), "count": len(vehs)},
             )
+
+        elif target == "traffic_lights":
+            tls_id = params.get("tls_id")
+            if tls_id is None:
+                ids = list(_traci_invoke(session, "trafficlight", "getIDList", []))
+                return make_result(tool, f"Traffic lights: {ids}", action=target,
+                                   data={"traffic_lights": ids, "count": len(ids)})
+            detail = {
+                "tls_id": tls_id,
+                "phase": _traci_invoke(session, "trafficlight", "getPhase", [tls_id]),
+                "program": _traci_invoke(session, "trafficlight", "getProgram", [tls_id]),
+                "state": _traci_invoke(session, "trafficlight", "getRedYellowGreenState", [tls_id]),
+                "phase_duration": _traci_invoke(session, "trafficlight", "getPhaseDuration", [tls_id]),
+            }
+            return make_result(tool, f"TLS {tls_id}: phase={detail['phase']} state={detail['state']}",
+                               action=target, data=detail)
+
+        elif target == "detectors":
+            kind = str(params.get("kind", "induction"))
+            domain = {"induction": "inductionloop", "lanearea": "lanearea"}.get(kind)
+            if domain is None:
+                return make_error(tool, f"Unknown detector kind: {kind} (use induction|lanearea)",
+                                  code=ErrorCode.INVALID_ARGUMENT, action=target)
+            det_id = params.get("detector_id")
+            if det_id is None:
+                ids = list(_traci_invoke(session, domain, "getIDList", []))
+                return make_result(tool, f"{kind} detectors: {ids}", action=target,
+                                   data={"detectors": ids, "count": len(ids), "kind": kind})
+            readings: Dict[str, Any] = {
+                "detector_id": det_id, "kind": kind,
+                "vehicle_count": _traci_invoke(session, domain, "getLastStepVehicleNumber", [det_id]),
+                "mean_speed": _traci_invoke(session, domain, "getLastStepMeanSpeed", [det_id]),
+                "occupancy": _traci_invoke(session, domain, "getLastStepOccupancy", [det_id]),
+            }
+            if domain == "lanearea":
+                readings["jam_length_m"] = _traci_invoke(session, domain, "getJamLengthMeters", [det_id])
+            return make_result(tool, f"Detector {det_id}: {readings['vehicle_count']} veh",
+                               action=target, data=readings)
+
+        elif target == "call":
+            domain = params.get("domain")
+            method = params.get("method")
+            if not domain or not method:
+                return make_error(tool, "Error: domain and method required for call",
+                                  code=ErrorCode.INVALID_ARGUMENT, action=target)
+            if not str(method).startswith("get"):
+                return make_error(
+                    tool, f"Error: query target 'call' only allows getters, got {method!r} "
+                          "(use control_simulation action='call' for setters)",
+                    code=ErrorCode.INVALID_ARGUMENT, action=target)
+            value = _traci_invoke(session, str(domain), str(method),
+                                  list(params.get("args") or []))
+            json_value: Any = list(value) if isinstance(value, tuple) else value
+            return make_result(tool, f"{domain}.{method} -> {value!r}", action=target,
+                               data={"domain": domain, "method": method, "value": json_value})
 
         elif target == "vehicle_variable":
             v_id = params.get("vehicle_id")
@@ -394,7 +628,7 @@ def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None)
                     tool, f"Unknown variable: {var}", code=ErrorCode.INVALID_ARGUMENT, action=target,
                 )
             value = getters[var](v_id)
-            json_value: Any = list(value) if isinstance(value, tuple) else value
+            json_value = list(value) if isinstance(value, tuple) else value
             return make_result(
                 tool, f"{var.capitalize()}: {value}", action=target,
                 data={"vehicle_id": v_id, "variable": var, "value": json_value},
@@ -407,6 +641,11 @@ def query_simulation_state(target: str, params: Optional[Dict[str, Any]] = None)
                 data={"simulation": info if isinstance(info, dict) else str(info)},
             )
 
+    except PermissionError as e:
+        return make_error(tool, f"Error: {e}", code=ErrorCode.INVALID_ARGUMENT, action=target)
+    except KeyError as e:
+        return make_error(tool, f"Error: {e.args[0] if e.args else e}",
+                          code=ErrorCode.SESSION_NOT_FOUND, action=target)
     except Exception as e:
         return make_error(
             tool, f"Error querying state: {type(e).__name__}: {e}",
@@ -702,6 +941,212 @@ def run_simple_simulation_tool(config_path: str, steps: int = 100) -> Envelope:
 def run_analysis(fcd_file: str) -> Envelope:
     text = analyze_fcd(fcd_file)
     return legacy_result("run_analysis", text, data={"fcd_file": fcd_file})
+
+
+# --- v0.2: SUMO CLI catalog & pass-through ---
+
+
+@server.tool(description=(
+    "Browse the whitelist of runnable SUMO commands: 14 core binaries plus ~600 tool "
+    "scripts (tier 1 = curated with descriptions, tier 3 = auto-discovered). Pass "
+    "name=<command> to get its --help text. Filter with kind ('binary'|'tool'), tier, "
+    "or a search string. Use this before run_sumo_binary / run_sumo_tool."
+    + _ENVELOPE_NOTE))
+def list_sumo_commands(
+    name: Optional[str] = None,
+    kind: Optional[str] = None,
+    tier: Optional[int] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+) -> Envelope:
+    tool = "list_sumo_commands"
+    try:
+        if name is not None:
+            described = describe_command(name)
+            if "error" in described and "help_text" not in described:
+                return make_error(tool, described["error"],
+                                  code=ErrorCode.INVALID_ARGUMENT, action="describe")
+            return make_result(tool, f"Description of {name}", action="describe", data=described)
+
+        commands = list_commands(kind=kind, tier=tier, search=search)
+        total = len(commands)
+        shown = commands[: max(1, limit)]
+        summary = f"{total} command(s) matched" + (f", showing first {len(shown)}" if total > len(shown) else "")
+        return make_result(
+            tool, summary, action="list",
+            data={"total": total, "shown": len(shown), "commands": shown},
+        )
+    except Exception as e:
+        return make_error(tool, f"Error listing commands: {type(e).__name__}: {e}",
+                          code=ErrorCode.EXECUTION_FAILED)
+
+
+def _run_cli_tool(tool: str, kind: str, name: str, args: Optional[List[str]],
+                  cwd: Optional[str], timeout_s: Optional[float],
+                  expected_outputs: Optional[List[Dict[str, str]]],
+                  background: bool) -> Envelope:
+    safe_args = [str(a) for a in (args or [])]
+    if background:
+        info = job_manager.start_cli_job(kind, name, safe_args, cwd=cwd, timeout_s=timeout_s,
+                                         expected_outputs=expected_outputs, label=name)
+        return make_result(
+            tool, f"Started background job {info['job_id']} for {name}. "
+                  "Poll it with manage_sumo_jobs(action='status').",
+            action=name, data=info, job_id=info["job_id"],
+        )
+
+    result = run_cli(kind, name, safe_args, cwd=cwd, timeout_s=timeout_s,
+                     expected_outputs=expected_outputs)
+    if result["ok"]:
+        summary = f"{name} completed in {result['duration_s']}s."
+    else:
+        summary = result["error"]["message"]
+    return make_result(
+        tool, summary, ok=result["ok"], action=name,
+        data={"returncode": result["returncode"], "duration_s": result["duration_s"]},
+        artifacts=result["artifacts"], command=result["command"],
+        stdout_tail=result["stdout_tail"], stderr_tail=result["stderr_tail"],
+        error=result["error"],
+    )
+
+
+@server.tool(description=(
+    "Run one of the 14 core SUMO binaries (sumo, netconvert, netgenerate, duarouter, "
+    "od2trips, ...) with raw CLI arguments (argv list, no shell). Whitelisted names only "
+    "— browse them with list_sumo_commands. Set background=true for long runs and poll "
+    "manage_sumo_jobs. Declare expected_outputs=[{path,role}] for precise artifact "
+    "tracking." + _ENVELOPE_NOTE))
+def run_sumo_binary(
+    name: str,
+    args: Optional[List[str]] = None,
+    cwd: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+    expected_outputs: Optional[List[Dict[str, str]]] = None,
+    background: bool = False,
+) -> Envelope:
+    return _run_cli_tool("run_sumo_binary", "binary", name, args, cwd, timeout_s,
+                         expected_outputs, background)
+
+
+@server.tool(description=(
+    "Run any whitelisted SUMO tool script from $SUMO_HOME/tools (randomTrips.py, "
+    "routeSampler.py, assign/duaIterate.py, xml/xml2csv.py, ...) with raw CLI arguments "
+    "(argv list, no shell). Browse available scripts with list_sumo_commands; get their "
+    "options with list_sumo_commands(name=...). Set background=true for long runs."
+    + _ENVELOPE_NOTE))
+def run_sumo_tool(
+    name: str,
+    args: Optional[List[str]] = None,
+    cwd: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+    expected_outputs: Optional[List[Dict[str, str]]] = None,
+    background: bool = False,
+) -> Envelope:
+    return _run_cli_tool("run_sumo_tool", "tool", name, args, cwd, timeout_s,
+                         expected_outputs, background)
+
+
+@server.tool(description=(
+    "Analyze a SUMO output file (summary, tripinfo, fcd, queue, emission — auto-detected, "
+    "gzip supported) with streaming XML parsing; returns structured metrics without "
+    "loading huge files into context. For quick pandas stats on FCD, run_analysis also "
+    "still works." + _ENVELOPE_NOTE))
+def analyze_sumo_output(
+    file_path: str,
+    kind: Optional[str] = None,
+    max_elements: int = 500_000,
+) -> Envelope:
+    tool = "analyze_sumo_output"
+    result = analyze_output(file_path, kind=kind, max_elements=max_elements)
+    if not result["ok"]:
+        return make_error(tool, result["error"]["message"],
+                          code=result["error"]["code"], action=result.get("kind") or "auto")
+    counts = ", ".join(f"{k}={v}" for k, v in result.get("counts", {}).items())
+    summary = f"Analyzed {result['kind']} output ({counts})."
+    if result.get("truncated"):
+        summary += " [truncated at max_elements]"
+    return make_result(
+        tool, summary, action=result["kind"],
+        data={k: v for k, v in result.items() if k not in ("ok",)},
+        metrics=result.get("metrics"),
+    )
+
+
+@server.tool(description=(
+    "Manage background jobs started by run_sumo_binary / run_sumo_tool / RL training. "
+    "actions: status {job_id} | result {job_id} | logs {job_id, tail_lines?} | "
+    "cancel {job_id} | list. Job manifests persist on disk, so jobs from previous "
+    "server runs remain visible." + _ENVELOPE_NOTE))
+def manage_sumo_jobs(action: str, params: Optional[Dict[str, Any]] = None) -> Envelope:
+    tool = "manage_sumo_jobs"
+    params = params or {}
+    job_id = params.get("job_id")
+
+    def _need_job_id() -> Optional[Envelope]:
+        if not job_id:
+            return make_error(tool, f"Error: job_id required for {action}",
+                              code=ErrorCode.INVALID_ARGUMENT, action=action)
+        return None
+
+    def _not_found() -> Envelope:
+        return make_error(tool, f"Error: no job with id {job_id!r}",
+                          code=ErrorCode.JOB_NOT_FOUND, action=action,
+                          remediation="Use manage_sumo_jobs(action='list') to see known jobs.")
+
+    try:
+        if action == "list":
+            jobs = job_manager.list_jobs()
+            return make_result(tool, f"{len(jobs)} job(s) known.", action=action,
+                               data={"jobs": jobs})
+
+        elif action == "status":
+            missing = _need_job_id()
+            if missing:
+                return missing
+            status = job_manager.get_status(str(job_id))
+            if status is None:
+                return _not_found()
+            return make_result(tool, f"Job {job_id}: {status['status']}", action=action,
+                               data=status, job_id=str(job_id))
+
+        elif action == "result":
+            missing = _need_job_id()
+            if missing:
+                return missing
+            result = job_manager.get_result(str(job_id))
+            if result is None:
+                return _not_found()
+            still_running = result.get("status") in ("pending", "running")
+            summary = (f"Job {job_id} still {result.get('status')}." if still_running
+                       else f"Job {job_id} finished.")
+            return make_result(tool, summary, action=action, data=result, job_id=str(job_id))
+
+        elif action == "logs":
+            missing = _need_job_id()
+            if missing:
+                return missing
+            logs = job_manager.get_logs(str(job_id), tail_lines=int(params.get("tail_lines", 100)))
+            if logs is None:
+                return _not_found()
+            return make_result(tool, f"Logs for job {job_id}.", action=action, data=logs,
+                               job_id=str(job_id))
+
+        elif action == "cancel":
+            missing = _need_job_id()
+            if missing:
+                return missing
+            cancelled = job_manager.cancel(str(job_id))
+            if cancelled is None:
+                return _not_found()
+            return make_result(tool, f"Job {job_id}: {cancelled['status']}", action=action,
+                               data=cancelled, job_id=str(job_id))
+
+    except Exception as e:
+        return make_error(tool, f"Error in manage_sumo_jobs ({action}): {type(e).__name__}: {e}",
+                          code=ErrorCode.EXECUTION_FAILED, action=action)
+
+    return make_error(tool, f"Unknown action: {action}. Available: status, result, logs, cancel, list",
+                      code=ErrorCode.INVALID_ARGUMENT, action=action)
 
 
 def main() -> None:
