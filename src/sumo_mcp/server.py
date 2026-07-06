@@ -25,6 +25,7 @@ from sumo_mcp.execution import run_cli
 from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
 from sumo_mcp.rl import create_run, list_algorithms as list_rl_algorithms_v2, list_runs, load_run
+from sumo_mcp.rl.algorithms import training_backend
 from sumo_mcp.rl.evaluation import compare_run, evaluate_run
 from sumo_mcp.rl.preflight import validate_rl_environment
 from sumo_mcp.rl.runs import latest_checkpoint, load_config, update_config, update_run
@@ -871,6 +872,14 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             )
         return str(net_file), str(route_file), None
 
+    def _training_module(algorithm: str) -> Optional[str]:
+        backend = training_backend(algorithm)
+        if backend == "ql":
+            return "sumo_mcp.rl.train_entry"
+        if backend == "sb3":
+            return "sumo_mcp.rl.sb3_entry"
+        return None
+
     if action == "list_scenarios":
         scenarios = list_rl_scenarios()
         return legacy_result(
@@ -933,14 +942,10 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             failed = preflight["failed_checks"]
             code = failed[0].get("code", ErrorCode.VALIDATION_FAILED) if failed else ErrorCode.VALIDATION_FAILED
             return make_error(tool, preflight["summary"], code=code, action=action, data=preflight)
-        if algorithm != "ql":
-            return make_error(
-                tool,
-                f"Error: algorithm {algorithm!r} is registered but not implemented for job training yet.",
-                code=ErrorCode.INVALID_ARGUMENT,
-                action=action,
-                remediation="Use algorithm='ql' now; SB3/PettingZoo trainers are the next stage-5 increment.",
-            )
+        module = _training_module(algorithm)
+        if module is None:
+            return make_error(tool, f"Error: unsupported RL algorithm {algorithm!r}",
+                              code=ErrorCode.INVALID_ARGUMENT, action=action)
 
         out_dir = str(params.get("out_dir") or params.get("output_dir") or "rl_runs")
         config = {
@@ -954,20 +959,26 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             "yellow_time": yellow_time,
             "seed": params.get("seed"),
             "scenario": params.get("scenario") or params.get("scenario_name"),
+            "total_timesteps": params.get("total_timesteps"),
+            "policy": str(params.get("policy", "MlpPolicy")),
         }
         manifest = create_run(out_dir, config)
         run_dir = str(manifest["run_dir"])
-        command = [sys.executable, "-m", "sumo_mcp.rl.train_entry", run_dir]
+        command = [sys.executable, "-m", module, run_dir]
+        expected_outputs = [
+            {"path": str(Path(run_dir) / "metrics.csv"), "role": "rl_metrics"},
+            {"path": str(Path(run_dir) / "manifest.json"), "role": "rl_run_manifest"},
+            {"path": str(Path(run_dir) / "config.json"), "role": "rl_run_config"},
+        ]
+        if training_backend(algorithm) == "sb3":
+            expected_outputs.append({"path": str(Path(run_dir) / "checkpoints" / f"{algorithm}_model.zip"),
+                                     "role": "rl_model"})
         info = job_manager.start_process_job(
             command,
             label=f"rl-train-{algorithm}",
             request={"kind": "rl_train", "run_dir": run_dir, **config},
             timeout_s=float(params.get("timeout_s", params.get("timeout", 3600))),
-            expected_outputs=[
-                {"path": str(Path(run_dir) / "metrics.csv"), "role": "rl_metrics"},
-                {"path": str(Path(run_dir) / "manifest.json"), "role": "rl_run_manifest"},
-                {"path": str(Path(run_dir) / "config.json"), "role": "rl_run_config"},
-            ],
+            expected_outputs=expected_outputs,
         )
         update_run(run_dir, {"status": "queued", "job_id": info["job_id"]})
         return make_result(
@@ -995,7 +1006,12 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
         config["resume_checkpoint"] = latest_checkpoint(run_dir)
         update_config(run_dir, config)
         update_run(run_dir, {"status": "queued"})
-        command = [sys.executable, "-m", "sumo_mcp.rl.train_entry", str(Path(run_dir).resolve())]
+        algorithm = str(config.get("algorithm", "ql")).lower()
+        module = _training_module(algorithm)
+        if module is None:
+            return make_error(tool, f"Error: unsupported RL algorithm {algorithm!r}",
+                              code=ErrorCode.INVALID_ARGUMENT, action=action)
+        command = [sys.executable, "-m", module, str(Path(run_dir).resolve())]
         info = job_manager.start_process_job(
             command, label=f"rl-resume-{config.get('algorithm', 'ql')}",
             request={"kind": "rl_resume", "run_dir": run_dir, **config},

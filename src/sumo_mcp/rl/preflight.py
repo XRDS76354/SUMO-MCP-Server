@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sumo_mcp.models import ErrorCode
-from sumo_mcp.rl.algorithms import algorithm_status
+from sumo_mcp.rl.algorithms import SB3_ALGORITHMS, algorithm_status
 from sumo_mcp.utils.sumo import find_sumo_binary, find_sumo_home
 
 
@@ -30,12 +30,16 @@ def _count_demands(root: ET.Element) -> int:
 def _traffic_light_summary(root: ET.Element) -> Dict[str, Any]:
     tls = list(root.iter("tlLogic"))
     green_phases = 0
+    tls_ids = []
     for logic in tls:
+        tls_id = logic.attrib.get("id")
+        if tls_id:
+            tls_ids.append(tls_id)
         for phase in logic.iter("phase"):
             state = phase.attrib.get("state", "")
             if "G" in state or "g" in state:
                 green_phases += 1
-    return {"tl_logic_count": len(tls), "green_phase_count": green_phases}
+    return {"tl_logic_count": len(tls), "green_phase_count": green_phases, "tl_ids": tls_ids}
 
 
 def validate_rl_environment(
@@ -135,6 +139,14 @@ def validate_rl_environment(
             f"{tls_summary['green_phase_count']} phase(s) include green states",
             code=None if tls_summary["green_phase_count"] > 0 else ErrorCode.VALIDATION_FAILED,
         ))
+        if algorithm.lower() in SB3_ALGORITHMS:
+            checks.append(_check(
+                "sb3_single_agent_scope",
+                tls_summary["tl_logic_count"] == 1,
+                "SB3 v0.2 trainer controls exactly one traffic signal; "
+                f"found {tls_summary['tl_logic_count']} tlLogic element(s)",
+                code=None if tls_summary["tl_logic_count"] == 1 else ErrorCode.VALIDATION_FAILED,
+            ))
 
     if route_root is not None:
         demand_count = _count_demands(route_root)

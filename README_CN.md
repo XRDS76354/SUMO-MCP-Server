@@ -51,10 +51,10 @@ ezdesignX 转换说明见 [doc/EZDESIGNX_TO_SUMO_CN.md](doc/EZDESIGNX_TO_SUMO_CN
     - 参数：`grid_number`(别名:`grid_size`,`size`), `sim_seconds`(别名:`steps`,`duration`,`end_time`), `output_dir`
 *   **Signal Optimization (`signal_opt`)**: 自动执行 "基线仿真 -> 信号优化 -> 优化仿真 -> 效果对比" 的全流程，并自动处理优化工具输出的 `<additional>` 文件挂载。
     - 参数：`net_file`(必填), `route_file`(必填), `sim_seconds`(别名:`steps`,`duration`), `use_coordinator`, `output_dir`
-*   **RL Training (`rl_train`)**: 针对内置场景的强化学习训练；自定义路网训练使用 `manage_rl_task/train_custom`（底层基于开源项目 [sumo-rl](https://github.com/LucasAlegre/sumo-rl)；要求路网包含信号灯，且运行建议显式设置 `SUMO_HOME`）。
+*   **RL Training (`rl_train` / `manage_rl_task`)**: 基于 SUMO-RL 的强化学习闭环：预检、后台训练/继续训练、状态查询、评估和对比。v0.2 支持 Q-learning、每信号灯独立 Q-learning，以及可选 SB3 DQN/PPO/A2C 单信号灯训练。见 [RL 指南](doc/RL_CN.md)。
     - 参数：`scenario_name`(别名:`scenario`), `episodes`(别名:`num_episodes`), `steps`(别名:`steps_per_episode`), `output_dir`
 
-> 💡 **提示**: 关于各工具的详细参数说明与调用示例，请参考 [API 详细文档](doc/API_CN.md)。
+> 💡 **提示**: 关于各工具的详细参数说明与调用示例，请参考 [API 详细文档](doc/API_CN.md) 和 [RL 指南](doc/RL_CN.md)。
 
 ---
 

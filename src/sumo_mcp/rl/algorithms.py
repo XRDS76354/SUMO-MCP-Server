@@ -4,6 +4,9 @@ from __future__ import annotations
 from importlib.util import find_spec
 from typing import Any, Dict, List
 
+SB3_ALGORITHMS = frozenset({"dqn", "ppo", "a2c"})
+INDEPENDENT_QL_ALGORITHMS = frozenset({"ql", "pettingzoo-independent-ql"})
+
 
 def _available(module_name: str) -> bool:
     return find_spec(module_name) is not None
@@ -35,17 +38,17 @@ def list_algorithms() -> List[Dict[str, Any]]:
             "name": "ppo",
             "family": "stable-baselines3",
             "available": sb3_available and torch_available,
-            "multi_agent": True,
+            "multi_agent": False,
             "dependency": "sumo-mcp[rl]",
-            "description": "SB3 PPO; can be adapted to vectorized PettingZoo wrappers.",
+            "description": "SB3 PPO single-agent baseline for one controlled traffic signal.",
         },
         {
             "name": "a2c",
             "family": "stable-baselines3",
             "available": sb3_available and torch_available,
-            "multi_agent": True,
+            "multi_agent": False,
             "dependency": "sumo-mcp[rl]",
-            "description": "SB3 A2C; lighter policy-gradient baseline.",
+            "description": "SB3 A2C single-agent baseline for one controlled traffic signal.",
         },
         {
             "name": "pettingzoo-independent-ql",
@@ -53,7 +56,7 @@ def list_algorithms() -> List[Dict[str, Any]]:
             "available": pettingzoo_available,
             "multi_agent": True,
             "dependency": "sumo-mcp[rl]",
-            "description": "Independent learners over sumo-rl parallel_env.",
+            "description": "Independent per-signal Q-learning for multi-agent SUMO-RL scenarios.",
         },
     ]
 
@@ -63,4 +66,14 @@ def algorithm_status(name: str) -> Dict[str, Any] | None:
     for spec in list_algorithms():
         if spec["name"] == normalized:
             return spec
+    return None
+
+
+def training_backend(name: str) -> str | None:
+    """Return the internal training backend for an algorithm."""
+    normalized = name.lower()
+    if normalized in INDEPENDENT_QL_ALGORITHMS:
+        return "ql"
+    if normalized in SB3_ALGORITHMS:
+        return "sb3"
     return None

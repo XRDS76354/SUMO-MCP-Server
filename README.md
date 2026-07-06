@@ -51,10 +51,10 @@ Built-in end-to-end workflows (`run_workflow`) for research and engineering task
   - Params: `grid_number` (aliases: `grid_size`, `size`), `sim_seconds` (aliases: `steps`, `duration`, `end_time`), `output_dir`
 - **Signal Optimization (`signal_opt`)**: Full pipeline: "baseline simulation -> optimization -> optimized simulation -> comparison" with automatic handling of `<additional>` outputs.
   - Params: `net_file` (required), `route_file` (required), `sim_seconds` (aliases: `steps`, `duration`), `use_coordinator`, `output_dir`
-- **RL Training (`rl_train`)**: Reinforcement learning training for built-in scenarios. For custom network training, use `manage_rl_task/train_custom` (based on [sumo-rl](https://github.com/LucasAlegre/sumo-rl); network must contain traffic lights; explicitly setting `SUMO_HOME` is recommended).
+- **RL Training (`rl_train` / `manage_rl_task`)**: Reinforcement learning loop for SUMO-RL scenarios: preflight, background train/resume, status, evaluate, and compare. v0.2 supports Q-learning, independent per-signal Q-learning, and optional SB3 DQN/PPO/A2C for single-signal networks. See [RL guide](doc/RL.md).
   - Params: `scenario_name` (alias: `scenario`), `episodes` (alias: `num_episodes`), `steps` (alias: `steps_per_episode`), `output_dir`
 
-For detailed parameters and examples, see [API documentation](doc/API.md).
+For detailed parameters and examples, see [API documentation](doc/API.md) and [RL guide](doc/RL.md).
 
 ---
 

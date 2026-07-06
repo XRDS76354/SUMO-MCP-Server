@@ -9,6 +9,7 @@ import pytest
 
 import sumo_mcp.rl.preflight as preflight
 import sumo_mcp.rl.evaluation as evaluation
+import sumo_mcp.rl.sb3_entry as sb3_entry
 import sumo_mcp.rl.train_entry as train_entry
 import sumo_mcp.server as srv
 from sumo_mcp.models import ErrorCode
@@ -29,6 +30,20 @@ def _write_pair(tmp_path: Path, *, tls: bool = True, demand: bool = True) -> tup
         "<routes>" + ("<vehicle id='v0' depart='0'><route edges='e0'/></vehicle>" if demand else "") + "</routes>",
         encoding="utf-8",
     )
+    return str(net), str(route)
+
+
+def _write_two_tls_pair(tmp_path: Path) -> tuple[str, str]:
+    net = tmp_path / "two.net.xml"
+    route = tmp_path / "routes.rou.xml"
+    net.write_text(
+        "<net>"
+        "<tlLogic id='J0' type='static' programID='0' offset='0'><phase duration='31' state='Gr'/></tlLogic>"
+        "<tlLogic id='J1' type='static' programID='0' offset='0'><phase duration='31' state='rG'/></tlLogic>"
+        "</net>",
+        encoding="utf-8",
+    )
+    route.write_text("<routes><vehicle id='v0' depart='0'><route edges='e0'/></vehicle></routes>", encoding="utf-8")
     return str(net), str(route)
 
 
@@ -60,6 +75,29 @@ def test_preflight_reports_empty_demand(tmp_path: Path, _preflight_env: None) ->
     report = preflight.validate_rl_environment(net, route)
     assert report["ok"] is False
     assert any(c["check"] == "demand" for c in report["failed_checks"])
+
+
+def test_preflight_reports_missing_sb3_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    net, route = _write_pair(tmp_path)
+    monkeypatch.setattr(preflight, "find_sumo_home", lambda: "/sumo")
+    monkeypatch.setattr(preflight, "find_sumo_binary", lambda name: f"/sumo/bin/{name}")
+    monkeypatch.setattr(
+        preflight,
+        "find_spec",
+        lambda name: None if name in {"stable_baselines3", "torch"} else object(),
+    )
+    report = preflight.validate_rl_environment(net, route, algorithm="dqn")
+    assert report["ok"] is False
+    failed = {c["check"]: c for c in report["failed_checks"]}
+    assert failed["algorithm_dependencies"]["code"] == ErrorCode.DEPENDENCY_MISSING
+
+
+def test_preflight_rejects_sb3_multi_tls_scope(tmp_path: Path, _preflight_env: None) -> None:
+    net, route = _write_two_tls_pair(tmp_path)
+    report = preflight.validate_rl_environment(net, route, algorithm="ppo")
+    assert report["ok"] is False
+    failed = {c["check"]: c for c in report["failed_checks"]}
+    assert failed["sb3_single_agent_scope"]["code"] == ErrorCode.VALIDATION_FAILED
 
 
 def test_run_manifest_lifecycle(tmp_path: Path) -> None:
@@ -117,6 +155,26 @@ def test_manage_rl_task_train_starts_process_job(monkeypatch: pytest.MonkeyPatch
     assert env["data"]["run"]["job_id"] == "job123"
 
 
+def test_manage_rl_task_train_starts_sb3_process_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    net, route = _write_pair(tmp_path)
+    captured: Dict[str, Any] = {}
+    monkeypatch.setattr(srv, "validate_rl_environment", lambda **kwargs: {
+        "ok": True, "summary": "passed", "checks": [], "failed_checks": [],
+    })
+    monkeypatch.setattr(srv.job_manager, "start_process_job", lambda command, **kwargs: captured.setdefault(
+        "job", {"job_id": "sb3-job", "job_dir": "j", "label": kwargs["label"], "status": "pending",
+                "command": command, "kwargs": kwargs}
+    ))
+    env = srv.manage_rl_task("train", {
+        "net_file": net, "route_file": route, "algorithm": "dqn",
+        "episodes": 1, "steps_per_episode": 10, "output_dir": str(tmp_path / "runs"),
+    })
+    assert env["ok"] is True
+    command = captured["job"]["command"]
+    assert command[1:4] == ["-m", "sumo_mcp.rl.sb3_entry", env["data"]["run"]["run_dir"]]
+    assert env["data"]["run"]["algorithm"] == "dqn"
+
+
 def test_manage_rl_task_train_rejects_failed_preflight(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     net, route = _write_pair(tmp_path)
     monkeypatch.setattr(srv, "validate_rl_environment", lambda **kwargs: {
@@ -169,6 +227,48 @@ def test_train_entry_updates_run_manifest(
     assert Path(manifest["latest_checkpoint"]).name == "q_table_ep1.pkl"
 
 
+def test_sb3_entry_updates_run_manifest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    run = create_run(str(tmp_path), {
+        "net_file": "n.net.xml", "route_file": "r.rou.xml", "algorithm": "dqn",
+        "episodes": 1, "steps_per_episode": 10, "total_timesteps": 12,
+    }, run_id="sb3")
+    run_dir = Path(run["run_dir"])
+
+    class FakeEnv:
+        out_csv_name = str(run_dir / "train_results")
+        episode = 1
+
+        def save_csv(self, out_csv_name, episode):
+            Path(f"{out_csv_name}_conn0_ep{episode}.csv").write_text("episode,reward\n1,1\n", encoding="utf-8")
+
+        def close(self) -> None:
+            pass
+
+    class FakeModel:
+        def __init__(self, policy, env, **kwargs):
+            assert policy == "MlpPolicy"
+            assert kwargs["tensorboard_log"] == str(run_dir / "tensorboard")
+
+        def learn(self, total_timesteps):
+            assert total_timesteps == 12
+
+        def save(self, path):
+            Path(path).write_text("model", encoding="utf-8")
+
+    monkeypatch.setattr(sb3_entry, "_model_class", lambda algorithm: FakeModel)
+    monkeypatch.setattr(sb3_entry, "_make_env", lambda config, run_dir_arg: FakeEnv())
+    rc = sb3_entry.main([str(run_dir)])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    manifest = load_run(str(run_dir))
+    assert manifest["status"] == "succeeded"
+    assert Path(manifest["final_model"]).name == "dqn_model.zip"
+    assert Path(manifest["metrics_file"]).is_file()
+
+
 def test_resume_sets_latest_checkpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     run = create_run(str(tmp_path / "runs"), {
         "net_file": "n", "route_file": "r", "algorithm": "ql", "episodes": 1,
@@ -203,7 +303,12 @@ class _FakeEvalEnv:
         self.steps += 1
         reward = 10.0 if actions == {"tls0": 1} else 1.0
         done = self.steps >= 1
-        return {"tls0": "s1"}, {"tls0": reward}, {"__all__": done, "tls0": done}, {}
+        return (
+            {"tls0": "s1"},
+            {"tls0": reward},
+            {"__all__": done, "tls0": done},
+            {"system_total_waiting_time": 2.0, "system_total_stopped": 1},
+        )
 
     def close(self) -> None:
         pass
@@ -219,14 +324,64 @@ def test_evaluate_and_compare_with_fake_env(monkeypatch: pytest.MonkeyPatch, tmp
     with ckpt.open("wb") as f:
         pickle.dump({"q_tables": {"tls0": {"s0": [0.0, 5.0]}}}, f)
     update_run(run["run_dir"], {"latest_checkpoint": str(ckpt), "final_model": str(ckpt)})
-    monkeypatch.setattr(evaluation, "_make_env", lambda config, run_dir: _FakeEvalEnv())
+    monkeypatch.setattr(evaluation, "_make_env", lambda config, run_dir, **kwargs: _FakeEvalEnv())
 
     result = evaluation.evaluate_run(run["run_dir"], episodes=1)
     assert result["ok"] is True
     assert result["metrics"]["mean_total_reward"] == 10.0
+    assert result["metrics"]["mean_system_total_waiting_time"] == 2.0
     result = evaluation.compare_run(run["run_dir"], episodes=1)
     assert result["ok"] is True
     assert result["metrics"]["mean_reward_delta"] == 9.0
+
+
+class _FakeSb3EvalEnv:
+    delta_time = 1
+    ts_ids = ["tls0"]
+
+    def __init__(self) -> None:
+        self.steps = 0
+
+    def reset(self):
+        self.steps = 0
+        return "s0", {}
+
+    def step(self, action):
+        self.steps += 1
+        reward = 7.0 if action == 1 else 1.0
+        done = self.steps >= 1
+        return "s1", reward, False, done, {"system_mean_speed": 3.5}
+
+    def close(self) -> None:
+        pass
+
+
+def test_evaluate_and_compare_sb3_with_fake_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run = create_run(str(tmp_path / "runs"), {
+        "net_file": "n", "route_file": "r", "algorithm": "dqn", "steps_per_episode": 5,
+    }, run_id="sb3-eval")
+    ckpt = Path(run["run_dir"]) / "checkpoints" / "dqn_model.zip"
+    ckpt.write_text("model", encoding="utf-8")
+    update_run(run["run_dir"], {"latest_checkpoint": str(ckpt), "final_model": str(ckpt)})
+
+    class FakeModel:
+        @classmethod
+        def load(cls, path):
+            assert path == str(ckpt)
+            return cls()
+
+        def predict(self, obs, deterministic=True):
+            return 1, None
+
+    monkeypatch.setattr(evaluation, "_load_sb3_model_class", lambda algorithm: FakeModel)
+    monkeypatch.setattr(evaluation, "_make_env", lambda config, run_dir, **kwargs: _FakeSb3EvalEnv())
+    result = evaluation.evaluate_run(run["run_dir"], episodes=1)
+    assert result["ok"] is True
+    assert result["metrics"]["mean_total_reward"] == 7.0
+    assert result["metrics"]["mean_system_mean_speed"] == 3.5
+    result = evaluation.compare_run(run["run_dir"], episodes=1)
+    assert result["ok"] is True
+    assert result["metrics"]["mean_reward_delta"] == 6.0
 
 
 def test_manage_rl_task_evaluate_and_compare(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -261,7 +261,7 @@ def run_rl_training(
                         "(e.g. netgenerate/netconvert with `--tls.guess true`)."
                     )
 
-                if algorithm != "ql":
+                if algorithm not in ("ql", "pettingzoo-independent-ql"):
                     return f"Algorithm {algorithm} not yet implemented in this tool wrapper."
 
                 # Simple Q-Learning implementation for demonstration.
@@ -289,6 +289,7 @@ def run_rl_training(
                     path = os.path.join(checkpoint_dir, f"q_table_ep{ep_num}.pkl")
                     payload = {
                         "algorithm": "ql",
+                        "requested_algorithm": algorithm,
                         "episode": ep_num,
                         "q_tables": {ts_id: getattr(agent, "q_table", {}) for ts_id, agent in agents.items()},
                     }
