@@ -21,8 +21,17 @@ SUMO-MCP is a middleware layer connecting Large Language Models (LLMs) with [Ecl
 
 The system supports both **offline workflows** (file-based pipelines) and **online interaction** (real-time TraCI control), covering use cases from macroscopic planning to microscopic control.
 
-API reference: `doc/API.md` (the single source of truth remains tool registration in `src/server.py`).
+API reference: [doc/API.md](doc/API.md) (the single source of truth remains tool registration in `src/sumo_mcp/server.py`).
 ezdesignX conversion guide: [doc/EZDESIGNX_TO_SUMO.md](doc/EZDESIGNX_TO_SUMO.md).
+Architecture: [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md). Changelog: [CHANGELOG.md](CHANGELOG.md).
+
+## v0.2 Quick Facts
+
+- 16 MCP tools with v0.1 names preserved.
+- Structured envelopes for all tool responses; read `summary` for human text.
+- Safe SUMO binary/tool wrappers with command catalog, background jobs, and stdout isolation.
+- MCP resources and prompts for diagnostics, tool selection, RL training, workflows, and troubleshooting.
+- RL loop supports preflight, train/resume, status, evaluate, compare, and run manifests.
 
 ## Core Features
 
@@ -34,7 +43,8 @@ Core MCP interfaces are grouped into intuitive tools to simplify common SUMO ope
 - **Network Management (`manage_network`)**: Generate networks (`generate`), download OSM data (`download_osm`), convert formats (`convert`), and convert ezdesignX v1 JSON/JSONC (`convert_ezdesignx`). A dedicated `convert_ezdesignx_network` tool is also available.
 - **Demand Management (`manage_demand`)**: Generate random trips (`generate_random`), convert OD matrices (`convert_od`), and compute routes (`compute_routes`).
 - **Signal Optimization (`optimize_traffic_signals`)**: Includes cycle adaptation (`cycle_adaptation`) and coordination (`coordination`). `cycle_adaptation` outputs SUMO `<additional>` signal plans (automatically mounted into `<additional-files>` by workflows).
-- **Simulation & Analysis**: Run standard config-based simulation (`run_simple_simulation`) and FCD trajectory analysis (`run_analysis`).
+- **SUMO CLI Adaptation**: Inspect and run whitelisted SUMO binaries/tools with `list_sumo_commands`, `run_sumo_binary`, and `run_sumo_tool`.
+- **Simulation & Analysis**: Run standard config-based simulation (`run_simple_simulation`), legacy FCD trajectory analysis (`run_analysis`), and streaming XML output analysis (`analyze_sumo_output`).
 
 Some aggregated tools accept `params.options: list[str]`, which are appended token-by-token to underlying SUMO binaries/scripts (see "General Conventions" in `doc/API.md`).
 
@@ -92,7 +102,7 @@ On Windows, `./install_deps.ps1 -NoDev` installs runtime dependencies only.
 Option A: clone from GitHub (recommended)
 ```bash
 git clone https://github.com/XRDS76354/SUMO-MCP-Server.git
-cd sumo-mcp
+cd SUMO-MCP-Server
 ```
 
 Option B: download ZIP
@@ -187,6 +197,9 @@ conda activate sumo-mcp
 # 2. Install dependencies
 pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple
 
+# Optional advanced RL extras
+pip install -e ".[rl]"
+
 # Runtime-only alternative:
 pip install -r requirements.txt
 ```
@@ -203,6 +216,8 @@ Start directly with Python:
 
 ```bash
 python src/server.py
+python -m sumo_mcp
+sumo-mcp
 ```
 
 Or use provided startup scripts:
@@ -229,10 +244,10 @@ B. Example host config (`claude_desktop_config.json`)
   "mcpServers": {
     "sumo-mcp": {
       "command": "/path/to/your/env/python",
-      "args": ["/path/to/sumo-mcp/src/server.py"],
+      "args": ["/path/to/SUMO-MCP-Server/src/server.py"],
       "env": {
         "SUMO_HOME": "/your/actual/sumo/path",
-        "PYTHONPATH": "/path/to/sumo-mcp/src"
+        "PYTHONPATH": "/path/to/SUMO-MCP-Server/src"
       }
     }
   }
@@ -243,6 +258,7 @@ Important:
 1. Replace `command` with the absolute path of your Python interpreter.
 2. Replace `args` with the absolute path of `src/server.py`.
 3. Explicitly setting `SUMO_HOME` and `PYTHONPATH` helps avoid `ModuleNotFoundError` and environment mismatch issues.
+4. Installed environments may use `sumo-mcp` or `python -m sumo_mcp` instead of the source shim.
 
 More config samples: `mcp_config_examples.json`.
 
@@ -265,7 +281,7 @@ In any MCP-enabled AI assistant, try prompts like:
 - RL task:
 
   > "List built-in RL scenarios and train a simple intersection for 5 episodes."
-  > *(Likely calls `manage_rl_task("list_scenarios")` + `run_workflow("rl_train", {"scenario_name": "...", "episodes": 5})`)*
+  > *(Likely calls `manage_rl_task("list_scenarios")`, `manage_rl_task("validate_env")`, `manage_rl_task("train")`, then `evaluate` and `compare`)*
 
 - Complex integrated scenario:
 
@@ -299,34 +315,20 @@ In any MCP-enabled AI assistant, try prompts like:
 ## Project Structure
 
 ```text
-sumo-mcp/
+SUMO-MCP-Server/
 ├── doc/
 │   ├── API.md              # MCP tool API reference (English)
 │   ├── API_CN.md           # MCP tool API reference (Chinese)
+│   ├── ARCHITECTURE.md     # Architecture overview
+│   ├── RL.md               # RL guide
 │   └── sumo-mcp.jpg        # Project image
 ├── src/
-│   ├── server.py           # MCP server entry (FastMCP, aggregated interfaces)
-│   ├── utils/              # Common utilities
-│   │   ├── connection.py   # TraCI connection manager
-│   │   ├── output.py       # Output helpers
-│   │   ├── sumo.py         # SUMO config helpers
-│   │   ├── timeout.py      # Timeout helpers
-│   │   └── traci.py        # TraCI wrappers
-│   ├── mcp_tools/          # Core tool modules
-│   │   ├── analysis.py     # Analysis tools
-│   │   ├── network.py      # Network tools
-│   │   ├── route.py        # Routing tools
-│   │   ├── signal.py       # Signal tools
-│   │   ├── simulation.py   # Simulation control tools
-│   │   ├── vehicle.py      # Vehicle tools
-│   │   └── rl.py           # Reinforcement learning tools
-│   ├── resources/          # Resource files
-│   └── workflows/          # Automated workflows
-│       ├── sim_gen.py      # Simulation generation workflow
-│       ├── signal_opt.py   # Signal optimization workflow
-│       └── rl_train.py     # RL training workflow
+│   ├── server.py           # v0.1-compatible launcher shim
+│   └── sumo_mcp/           # v0.2 package: server, catalog, jobs, sessions, rl, resources
+├── skills/                 # SUMO-MCP skill sources and installer
 ├── pyproject.toml          # Project config and dependencies
 ├── requirements.lock       # Locked dependency versions
+├── CHANGELOG.md            # Release notes
 ├── README.md               # Project documentation (English)
 └── README_CN.md            # Project documentation (Chinese)
 ```

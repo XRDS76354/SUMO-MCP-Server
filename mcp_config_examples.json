@@ -1,50 +1,88 @@
 {
-  "description": "SUMO-MCP 客户端配置示例 - 适用于 Claude Desktop 等 MCP 客户端",
-
-  "claude_desktop_windows": {
-    "mcpServers": {
-      "sumo-mcp": {
-        "command": "<REPO_ROOT>\\start_server.bat"
-      }
+  "description": "SUMO-MCP v0.2 MCP client configuration examples",
+  "notes": {
+    "recommended": "Use absolute paths for local source checkouts. Set SUMO_HOME explicitly when SUMO tools scripts or SUMO-RL are used.",
+    "launch_modes": [
+      "console script: sumo-mcp",
+      "module: python -m sumo_mcp",
+      "source shim: python <REPO_ROOT>/src/server.py",
+      "uvx from GitHub: uvx --from git+https://github.com/XRDS76354/SUMO-MCP-Server sumo-mcp"
+    ],
+    "config_locations": {
+      "claude_desktop_windows": "%APPDATA%\\Claude\\claude_desktop_config.json",
+      "claude_desktop_macos": "~/Library/Application Support/Claude/claude_desktop_config.json",
+      "claude_desktop_linux": "~/.config/Claude/claude_desktop_config.json"
     }
   },
-
-  "claude_desktop_windows_with_python": {
-    "mcpServers": {
-      "sumo-mcp": {
-        "command": "<PYTHON_EXE_PATH>",
-        "args": ["<REPO_ROOT>\\src\\server.py"],
-        "env": {
-          "SUMO_HOME": "<SUMO_HOME>",
-          "PATH": "<SUMO_HOME>\\bin;%PATH%"
-        }
-      }
-    }
-  },
-
-  "claude_desktop_linux_macos": {
+  "claude_desktop_source_checkout": {
     "mcpServers": {
       "sumo-mcp": {
         "command": "<PYTHON_EXE_PATH>",
         "args": ["<REPO_ROOT>/src/server.py"],
         "env": {
           "SUMO_HOME": "<SUMO_HOME>",
+          "PYTHONPATH": "<REPO_ROOT>/src",
           "PATH": "<SUMO_HOME>/bin:${PATH}"
         }
       }
     }
   },
-
-  "notes": {
-    "config_location": {
-      "windows": "%APPDATA%\\Claude\\claude_desktop_config.json",
-      "macos": "~/Library/Application Support/Claude/claude_desktop_config.json",
-      "linux": "~/.config/Claude/claude_desktop_config.json"
-    },
-    "tips": [
-      "外部依赖路径（如 SUMO_HOME、Python）建议使用系统环境变量或在此处显式传入 env",
-      "使用 start_server.bat/start_server.ps1 (Windows) 或 start_server.sh (Linux/macOS) 可以简化配置",
-      "配置完成后重启 Claude Desktop 使配置生效"
-    ]
+  "claude_desktop_console_script": {
+    "mcpServers": {
+      "sumo-mcp": {
+        "command": "sumo-mcp",
+        "env": {
+          "SUMO_HOME": "<SUMO_HOME>"
+        }
+      }
+    }
+  },
+  "claude_desktop_python_module": {
+    "mcpServers": {
+      "sumo-mcp": {
+        "command": "<PYTHON_EXE_PATH>",
+        "args": ["-m", "sumo_mcp"],
+        "env": {
+          "SUMO_HOME": "<SUMO_HOME>",
+          "PYTHONPATH": "<REPO_ROOT>/src"
+        }
+      }
+    }
+  },
+  "claude_desktop_uvx_github": {
+    "mcpServers": {
+      "sumo-mcp": {
+        "command": "uvx",
+        "args": [
+          "--from",
+          "git+https://github.com/XRDS76354/SUMO-MCP-Server",
+          "sumo-mcp"
+        ],
+        "env": {
+          "SUMO_HOME": "<SUMO_HOME>"
+        }
+      }
+    }
+  },
+  "windows_source_checkout": {
+    "mcpServers": {
+      "sumo-mcp": {
+        "command": "<PYTHON_EXE_PATH>",
+        "args": ["<REPO_ROOT>\\src\\server.py"],
+        "env": {
+          "SUMO_HOME": "<SUMO_HOME>",
+          "PYTHONPATH": "<REPO_ROOT>\\src",
+          "PATH": "<SUMO_HOME>\\bin;%PATH%"
+        }
+      }
+    }
+  },
+  "cursor_or_codex_source_checkout": {
+    "command": "<PYTHON_EXE_PATH>",
+    "args": ["<REPO_ROOT>/src/server.py"],
+    "env": {
+      "SUMO_HOME": "<SUMO_HOME>",
+      "PYTHONPATH": "<REPO_ROOT>/src"
+    }
   }
 }

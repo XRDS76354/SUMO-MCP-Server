@@ -1,228 +1,201 @@
-# SUMO-MCP API Reference (FastMCP Tools)
+# SUMO-MCP v0.2 API Reference
 
 [中文文档](API_CN.md)
 
-This document mirrors the tools registered via `@server.tool` in `src/server.py`, and is intended to provide a stable MCP calling contract for hosts/LLMs.
+This document describes the public FastMCP contract exposed by
+`src/sumo_mcp/server.py`. The v0.2 tool surface is intentionally fixed at 16
+tools: v0.1 tool names remain available, and v0.2 capabilities are added through
+actions, resources, prompts, and structured return data.
 
-**Single source of truth**: `src/server.py` (if this document differs from implementation, follow code).
+## Return Envelope
 
-![SUMO-MCP Tool Overview](sumo-mcp工具列表.png)
-
-## Environment Requirements
-
-- **Python**: 3.10+
-- **SUMO**: 1.23+ (binaries in `PATH`; set `SUMO_HOME` when using tools scripts)
-- **Python dependencies**:
-  - Runtime: `mcp[cli]`, `sumolib`, `traci`, `sumo-rl`, `pandas`, `requests`
-  - Dev (optional): `mypy`, `flake8`, `pytest`, `psutil`, `types-*`
-
-For installation details, see [README.md](../README.md).
-
-## General Conventions
-
-### Return Type
-All tools return `string` (success summary/result text, or error text beginning with `Error:`).
-
-### `params.options`
-Some tools support `options` (`list[str]`) inside `params`. These options are appended **token-by-token** to underlying SUMO binary/script commands.
-
-Example:
+All tools return a JSON-compatible envelope:
 
 ```json
 {
-  "options": ["--tls.guess", "true", "--default.lanenumber", "2"]
+  "ok": true,
+  "tool": "manage_network",
+  "action": "generate",
+  "summary": "Human readable result",
+  "data": {},
+  "artifacts": [{"path": "/abs/file", "role": "network", "exists": true, "size_bytes": 123}],
+  "metrics": {},
+  "command": ["sumo", "-c", "scenario.sumocfg"],
+  "stdout_tail": "",
+  "stderr_tail": "",
+  "warnings": [],
+  "error": {"code": "INVALID_ARGUMENT", "message": "details", "remediation": "fix"},
+  "job_id": "abc123"
 }
 ```
 
-### SUMO Tools Script Dependency
-Features backed by SUMO Python tools scripts (`osmGet.py`, `randomTrips.py`, `tls*.py`, etc.) require resolving `<SUMO_HOME>/tools`.
+Only `ok`, `tool`, and `summary` are always present. v0.1 string summaries are
+preserved in `summary`.
 
-The project attempts to infer `SUMO_HOME`, but explicitly setting the `SUMO_HOME` environment variable is still recommended for deterministic behavior.
+Stable error codes include `SUMO_NOT_FOUND`, `DEPENDENCY_MISSING`,
+`INVALID_ARGUMENT`, `FILE_NOT_FOUND`, `EXECUTION_FAILED`, `TIMEOUT`,
+`CONNECTION_ERROR`, `SESSION_NOT_FOUND`, `JOB_NOT_FOUND`, `GUI_BLOCKED`,
+`VALIDATION_FAILED`, and `NETWORK_ERROR`.
 
-To provide a more concise and intuitive interface, the original 20+ individual tools are merged into 7 core tools. Each core tool distinguishes concrete operations through `action` or `method`.
+## General Conventions
 
-### ezdesignX Conversion
-SUMO-MCP also provides ezdesignX v1 `JSON` / `JSONC` conversion into SUMO
-network artifacts via a dedicated tool and a `manage_network` action.
+- Paths may be relative, but absolute paths are recommended for chained agent workflows.
+- `params.options` and CLI `args` are `list[str]` argv tokens, never shell strings.
+- Long operations should use background jobs when available and then poll `manage_sumo_jobs`.
+- SUMO tools scripts require `<SUMO_HOME>/tools`; set `SUMO_HOME` for deterministic behavior.
 
-## 1. Network Management (`manage_network`)
+## Tools
 
-Manage SUMO network generation, conversion, and OSM download.
+### `manage_network(action, output_file, params?)`
 
-- **Tool name**: `manage_network`
-- **Parameters**:
-  - `action` (string):
-    - `generate`: Generate abstract networks (Grid/Spider).
-    - `convert` (or `convert_osm`): Convert OSM file to SUMO network.
-    - `convert_ezdesignx`: Convert ezdesignX v1 JSON/JSONC into SUMO artifacts.
-    - `download_osm`: Download map data from OpenStreetMap.
-  - `output_file` (string): Output file path (for `download_osm`, this is output directory).
-  - `params` (object, optional):
-    - `generate`: `{ "grid": bool, "grid_number": int, "spider": bool }`
-    - `convert` / `convert_osm`: `{ "osm_file": string }`
-    - `convert_ezdesignx`: `{ "input_json": string, "validation": "basic"|"topology"|"strict", "netconvert_bin"?: string, "sumo_bin"?: string, "sumo_gui_bin"?: string }`
-    - `download_osm`: `{ "bbox": "w,s,e,n", "prefix": string }`
-    - `options`: `list[string]` extra CLI options (see General Conventions)
+Network generation, OSM download/conversion, and ezdesignX conversion.
 
-Notes:
-- In `generate`, `spider=true` overrides `grid/grid_number` and forces a spider network.
-- For more spider parameters, pass native `netgenerate` flags via `params.options`.
+Actions:
 
-### Dedicated ezdesignX tool (`convert_ezdesignx_network`)
+- `generate`: `params.grid`, `params.grid_number`, `params.spider`, plus native flags in `params.options`.
+- `download_osm`: `output_file` is output directory; `params.bbox`, `params.prefix`.
+- `convert` / `convert_osm`: `params.osm_file`.
+- `convert_ezdesignx`: `output_file` is output directory; `params.input_json`, `params.validation`.
 
-- **Tool name**: `convert_ezdesignx_network`
-- **Parameters**:
-  - `input_json` (string): ezdesignX v1 `JSON` or `JSONC` file path
-  - `output_dir` (string): output directory
-  - `validation` (string, optional): `basic`, `topology`, or `strict`
-  - `netconvert_bin` (string, optional)
-  - `sumo_bin` (string, optional)
-  - `sumo_gui_bin` (string, optional)
-- **Returns**:
-  a string summary including `schemaKind`, `adapterMode`, output paths, and
-  validation status
+### `convert_ezdesignx_network(input_json, output_dir, validation?, netconvert_bin?, sumo_bin?, sumo_gui_bin?)`
 
-## 2. Demand Management (`manage_demand`)
+Dedicated ezdesignX v1 JSON/JSONC to SUMO artifacts converter. Preserves the
+v0.1 dedicated tool while sharing the same converter as `manage_network`.
 
-Manage demand generation, OD conversion, and route computation.
+### `manage_demand(action, net_file, output_file, params?)`
 
-- **Tool name**: `manage_demand`
-- **Parameters**:
-  - `action` (string):
-    - `generate_random` (or `random_trips`): Generate random trips.
-    - `convert_od` (or `od_matrix`): Convert OD matrix to trips.
-    - `compute_routes` (or `routing`): Run `duarouter`.
-  - `net_file` (string): Base network file path.
-  - `output_file` (string): Output file path.
-  - `params` (object, optional):
-    - `generate_random` / `random_trips`: `{ "end_time": int, "end": int, "period": float }` (`end` is compatibility alias)
-    - `convert_od` / `od_matrix`: `{ "od_file": string }`
-    - `compute_routes` / `routing`: `{ "route_files": string }` (input trips file)
-    - `options`: `list[string]` extra CLI options (see General Conventions)
+Demand and route preparation.
 
-## 3. Simulation Control (`control_simulation`)
+Actions:
 
-Control lifecycle of online SUMO simulation instances.
+- `generate_random` / `random_trips`: calls `randomTrips.py`; supports `end_time`, `period`, and `options`.
+- `convert_od` / `od_matrix`: calls `od2trips`; requires `params.od_file`.
+- `compute_routes` / `routing`: calls `duarouter`; requires `params.route_files`.
 
-- **Tool name**: `control_simulation`
-- **Parameters**:
-  - `action` (string):
-    - `connect`: Start a new simulation or attach to an existing instance.
-    - `step`: Advance simulation time.
-    - `disconnect`: Disconnect and stop simulation.
-  - `params` (object, optional):
-    - `connect`: `{ "config_file": string, "gui": bool, "port": int, "host": string }`
-    - `step`: `{ "step": float }` (default `0`, meaning one step)
+### `control_simulation(action, params?)`
 
-## 4. State Query (`query_simulation_state`)
+Online TraCI lifecycle.
 
-Query real-time simulation state online (vehicles, global state, etc.). Requires an active connection created by `control_simulation`.
+Actions:
 
-- **Tool name**: `query_simulation_state`
-- **Parameters**:
-  - `target` (string):
-    - `vehicle_list` (or `vehicles`): Get all active vehicle IDs.
-    - `vehicle_variable`: Get a specific variable for one vehicle.
-    - `simulation`: Get global simulation stats (time and vehicle counts).
-  - `params` (object, optional):
-    - `vehicle_variable`: `{ "vehicle_id": string, "variable": string }`
-      - `variable` supports: `speed`, `position`, `acceleration`, `lane`, `route`
+- `connect`: `params.config_file`, `params.gui`, `params.port`, `params.host`, optional `params.session`.
+- `step`: `params.step`, optional `params.session`.
+- `disconnect`: optional `params.session`.
 
-## 5. Signal Optimization (`optimize_traffic_signals`)
+### `query_simulation_state(target, params?)`
 
-Run traffic signal optimization algorithms.
+Online state queries.
 
-- **Tool name**: `optimize_traffic_signals`
-- **Parameters**:
-  - `method` (string):
-    - `cycle_adaptation` (or `Websters`): Cycle adaptation (Webster-based).
-    - `coordination`: Green-wave coordination.
-  - `net_file` (string): Network file.
-  - `route_file` (string): Route file.
-  - `output_file` (string): Output file path.
-  - `params` (object, optional):
-    - `options`: `list[string]` extra CLI options (mainly for `coordination`; see General Conventions)
+Targets:
 
-Output file type notes:
-- `cycle_adaptation`: Outputs a SUMO `<additional>` file (contains `<tlLogic>` plans), which must be referenced in `.sumocfg` through `<additional-files>` (not `<net-file>`).
-- `coordination`: Also outputs an `<additional>` file by default (TLS offsets), also referenced via `<additional-files>`.
+- `vehicle_list` / `vehicles`.
+- `vehicle_variable`: `params.vehicle_id`, `params.variable` (`speed`, `position`, `acceleration`, `lane`, `route`).
+- `simulation`: global time and vehicle counts.
 
-For end-to-end baseline-vs-optimized comparison, use `run_workflow` with `signal_opt`, which handles file wiring automatically.
+When `params.session` is provided, the named online session is used; otherwise
+the legacy global connection is used.
 
-## 6. Automated Workflows (`run_workflow`)
+### `optimize_traffic_signals(method, net_file, route_file, output_file, params?)`
 
-Execute predefined long-running workflows.
+Traffic signal optimization.
 
-- **Tool name**: `run_workflow`
-- **Parameters**:
-  - `workflow_name` (string):
-    - `sim_gen_eval` (or `sim_gen_workflow` / `sim_gen`): Auto-generate network and evaluate.
-    - `signal_opt` (or `signal_opt_workflow`): Full signal optimization comparison pipeline.
-    - `rl_train`: RL training workflow.
-  - `params` (object): workflow parameter dictionary (supports aliases; priority follows listed order).
+Methods:
 
-### `sim_gen_eval` parameters
+- `cycle_adaptation` / `Websters`: Webster-style green splits via `tlsCycleAdaptation.py`.
+- `coordination`: green-wave offsets via `tlsCoordinator.py`.
 
-| Parameter | Type | Default | Aliases | Description |
-|---|---|---|---|---|
-| `grid_number` | int | 3 | `grid_size`, `size` | Grid size NxN |
-| `sim_seconds` | int | 100 | `steps`, `duration`, `end_time` | Simulation duration (seconds) |
-| `output_dir` | string | `"output"` | - | Output directory |
+Outputs are SUMO additional files and must be mounted as `<additional-files>`.
 
-Example:
+### `run_workflow(workflow_name, params)`
 
-```json
-run_workflow("sim_gen_eval", {"grid_number": 3, "sim_seconds": 1000})
-// Equivalent:
-run_workflow("sim_gen_eval", {"size": 3, "steps": 1000})
-```
+Compact end-to-end workflows.
 
-### `signal_opt` parameters
+Workflows:
 
-| Parameter | Type | Default | Aliases | Description |
-|---|---|---|---|---|
-| `net_file` | string | **required** | - | `.net.xml` network path |
-| `route_file` | string | **required** | - | `.rou.xml` route path |
-| `sim_seconds` | int | 3600 | `steps`, `duration` | Simulation duration (seconds) |
-| `use_coordinator` | bool | false | - | Use `tlsCoordinator` instead of `tlsCycleAdaptation` |
-| `output_dir` | string | `"output"` | - | Output directory |
+- `sim_gen_eval`: generate network, demand, routes, simulation, and analysis.
+- `signal_opt`: baseline run, signal optimization, optimized run, comparison.
+- `rl_train`: legacy built-in SUMO-RL workflow.
 
-### `rl_train` parameters
+### `manage_rl_task(action, params?)`
 
-| Parameter | Type | Default | Aliases | Description |
-|---|---|---|---|---|
-| `scenario_name` | string | - | `scenario` | Built-in scenario name (check via `manage_rl_task("list_scenarios")`) |
-| `episodes` | int | 5 | `num_episodes` | Number of episodes |
-| `steps` | int | 1000 | `steps_per_episode` | Steps per episode |
-| `output_dir` | string | `"output"` | - | Output directory |
+RL experiment lifecycle. See [RL guide](RL.md).
 
-## 7. Reinforcement Learning Tasks (`manage_rl_task`)
+Actions:
 
-Manage RL tasks based on [sumo-rl](https://github.com/LucasAlegre/sumo-rl).
+- `list_scenarios`
+- `list_algorithms`
+- `validate_env`
+- `train`
+- `resume`
+- `status`
+- `stop`
+- `evaluate`
+- `compare`
+- `list_runs`
+- `train_custom` (v0.1-compatible synchronous Q-learning)
 
-- **Tool name**: `manage_rl_task`
-- **Parameters**:
-  - `action` (string):
-    - `list_scenarios`: List built-in scenarios.
-    - `train_custom`: Run custom training.
-  - `params` (object, optional):
-    - `train_custom` supports two inputs (choose one):
-      1) **Built-in scenario**:
-         `{ "scenario" or "scenario_name", "out_dir"/"output_dir", "episodes"/"num_episodes", "steps"/"steps_per_episode", "algorithm", "reward_type" }`
-      2) **Custom files**:
-         `{ "net_file", "route_file", "out_dir"/"output_dir", "episodes"/"num_episodes", "steps"/"steps_per_episode", "algorithm", "reward_type" }`
+Supported algorithms: `ql`, `pettingzoo-independent-ql`, `dqn`, `ppo`, `a2c`.
+SB3 algorithms require `sumo-mcp[rl]` and are single-TLS in v0.2.
 
-Constraints:
-- `list_scenarios` only depends on the `sumo-rl` package itself.
-- **Training** strongly depends on `SUMO_HOME` at `sumo-rl` import time, so set `SUMO_HOME` explicitly before training and ensure `sumo` is executable.
-- Custom training requires traffic lights (`tlLogic`) in the network; otherwise returns `No traffic lights found`.
-- `algorithm` currently implements only `ql` (Q-Learning).
+### `get_sumo_info()`
 
----
+SUMO diagnostics: versions, binaries, tools directory, and environment state.
 
-## Legacy Tools
+### `run_simple_simulation(config_file, output_dir?)`
 
-These standalone tools remain for compatibility:
-- `get_sumo_info`: Get SUMO version info.
-- `run_simple_simulation`: Run offline simulation with a config file. Params: `config_path`, `steps` (default: `100`).
-- `run_analysis`: Parse FCD output file. Param: `fcd_file`.
+Run a config-based SUMO simulation with the legacy simple wrapper.
+
+### `run_analysis(fcd_file)`
+
+Legacy FCD CSV analysis helper.
+
+### `list_sumo_commands(kind?, tier?, search?, include_unavailable?)`
+
+Inspect the curated/runtime SUMO command catalog. `kind` is `binary` or `tool`.
+Tier 1 is curated; tier 3 is dynamically discovered under `$SUMO_HOME/tools`.
+
+### `run_sumo_binary(name, args?, cwd?, timeout_s?, expected_outputs?, background?)`
+
+Run a whitelisted SUMO binary such as `sumo`, `netconvert`, `netgenerate`,
+`duarouter`, or `od2trips`. Arguments are argv tokens.
+
+### `run_sumo_tool(name, args?, cwd?, timeout_s?, expected_outputs?, background?)`
+
+Run a whitelisted SUMO Python tool script such as `randomTrips.py`,
+`osmBuild.py`, `tlsCycleAdaptation.py`, or `xml/xml2csv.py`.
+
+### `analyze_sumo_output(file_path, kind?, max_elements?)`
+
+Streaming XML analysis for summary, tripinfo, FCD, queue, emission, and related
+SUMO outputs. Supports gzip and truncation via `max_elements`.
+
+### `manage_sumo_jobs(action, params?)`
+
+Persistent background job management.
+
+Actions:
+
+- `list`
+- `status`: requires `params.job_id`
+- `result`: requires `params.job_id`
+- `logs`: requires `params.job_id`, optional `tail_lines`
+- `cancel`: requires `params.job_id`
+
+## MCP Resources
+
+- `sumo://diagnostics`
+- `sumo://tool-catalog`
+- `sumo://commands`
+- `sumo://guide/tool-selection`
+- `sumo://guide/workflows`
+- `sumo://guide/rl-training`
+- `sumo://guide/troubleshooting`
+- `sumo://jobs/{job_id}`
+
+## MCP Prompts
+
+- `build-simulation-from-scratch`
+- `import-osm-area`
+- `optimize-signals`
+- `rl-train-and-evaluate`
+- `analyze-simulation-outputs`

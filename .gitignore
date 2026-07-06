@@ -156,6 +156,8 @@ output/
 output_*/
 test_out/
 routes.rou.xml
+sumo_mcp_jobs/
+rl_runs/
 *.rar
 *.7z
 *.zip

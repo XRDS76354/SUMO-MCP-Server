@@ -21,8 +21,17 @@ SUMO-MCP 是一个连接大语言模型 (LLM) 与 [Eclipse SUMO](https://www.ecl
 
 系统支持**离线仿真**（基于文件的工作流）和**在线交互**（实时 TraCI 控制）两种模式，满足从宏观规划到微观控制的多样化需求。
 
-API 参考见 `doc/API_CN.md`（唯一真相源以 `src/server.py` 的工具注册为准）。
+API 参考见 [doc/API_CN.md](doc/API_CN.md)（唯一真相源以 `src/sumo_mcp/server.py` 的工具注册为准）。
 ezdesignX 转换说明见 [doc/EZDESIGNX_TO_SUMO_CN.md](doc/EZDESIGNX_TO_SUMO_CN.md)。
+架构说明见 [doc/ARCHITECTURE_CN.md](doc/ARCHITECTURE_CN.md)。变更日志见 [CHANGELOG.md](CHANGELOG.md)。
+
+## v0.2 速查
+
+- 固定 16 个 MCP tools，并保留 v0.1 工具名。
+- 所有工具返回结构化 envelope；人类可读文本在 `summary`。
+- 安全 SUMO binary/tool wrapper：命令目录、后台 job、stdout 隔离。
+- MCP resources/prompts 提供 diagnostics、工具选择、RL 训练、工作流和排障指南。
+- RL 闭环支持预检、训练/续训、状态、评估、对比和 run manifest。
 
 ## 🚀 核心功能特性
 
@@ -34,7 +43,8 @@ ezdesignX 转换说明见 [doc/EZDESIGNX_TO_SUMO_CN.md](doc/EZDESIGNX_TO_SUMO_CN
 *   **路网管理 (`manage_network`)**: 支持路网生成 (`generate`)、OSM 地图下载 (`download_osm`)、格式转换 (`convert`) 以及 ezdesignX v1 JSON/JSONC 转换 (`convert_ezdesignx`)；同时提供专用工具 `convert_ezdesignx_network`。
 *   **需求管理 (`manage_demand`)**: 提供随机行程生成 (`generate_random`)、OD 矩阵转换 (`convert_od`) 和路径计算 (`compute_routes`)。
 *   **信号优化 (`optimize_traffic_signals`)**: 集成周期自适应 (`cycle_adaptation`) 和绿波协调 (`coordination`) 算法；其中 `cycle_adaptation` 输出为 SUMO `<additional>` 信号方案文件（由工作流自动挂载到 `<additional-files>`）。
-*   **仿真与分析**: 支持标准配置文件仿真 (`run_simple_simulation`) 与 FCD 轨迹数据分析 (`run_analysis`)。
+*   **SUMO CLI 适配**: 使用 `list_sumo_commands`、`run_sumo_binary`、`run_sumo_tool` 查看并运行白名单 SUMO binaries/tools。
+*   **仿真与分析**: 支持标准配置文件仿真 (`run_simple_simulation`)、旧版 FCD 分析 (`run_analysis`) 和流式 XML 输出分析 (`analyze_sumo_output`)。
 
 部分聚合工具支持在 `params` 中传入 `options: list[str]`，用于将额外参数按 token 透传到底层 SUMO 二进制/脚本（详见 `doc/API_CN.md` 的“通用约定”）。
 
@@ -94,7 +104,7 @@ ezdesignX 转换说明见 [doc/EZDESIGNX_TO_SUMO_CN.md](doc/EZDESIGNX_TO_SUMO_CN
 **方式 A：通过 Git 克隆 (推荐)**
 ```bash
 git clone https://github.com/XRDS76354/SUMO-MCP-Server.git
-cd sumo-mcp
+cd SUMO-MCP-Server
 ```
 
 **方式 B：下载压缩包**
@@ -198,6 +208,9 @@ conda activate sumo-mcp
 # 推荐国内用户使用镜像源加速，一键安装项目及开发工具
 pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple
 
+# 可选高级 RL 依赖
+pip install -e ".[rl]"
+
 # 或者仅安装基础依赖
 pip install -r requirements.txt
 ```
@@ -214,6 +227,8 @@ pip install -r requirements.txt
 
 ```bash
 python src/server.py
+python -m sumo_mcp
+sumo-mcp
 ```
 
 或者使用仓库自带的启动脚本（会自动处理环境检测与 `PATH` 挂载）：
@@ -244,10 +259,10 @@ python src/server.py
   "mcpServers": {
     "sumo-mcp": {
       "command": "/path/to/your/env/python", 
-      "args": ["/path/to/sumo-mcp/src/server.py"],
+      "args": ["/path/to/SUMO-MCP-Server/src/server.py"],
       "env": {
         "SUMO_HOME": "/your/actual/sumo/path",
-        "PYTHONPATH": "/path/to/sumo-mcp/src"
+        "PYTHONPATH": "/path/to/SUMO-MCP-Server/src"
       }
     }
   }
@@ -258,8 +273,9 @@ python src/server.py
 > 1. `command`: 必须替换为您找到的 **Python 解释器绝对路径**。
 > 2. `args`: 必须替换为项目 `src/server.py` 的 **绝对路径**。
 > 3. `env`: 显式设置 `SUMO_HOME` 和 `PYTHONPATH` 可以有效避免 `ModuleNotFoundError` 或环境识别错误。
+> 4. 已安装环境可直接使用 `sumo-mcp` 或 `python -m sumo_mcp`，不必走源码 shim。
 
-工具清单与参数约定请以 `src/server.py` 或 `doc/API_CN.md` 为准。
+工具清单与参数约定请以 `src/sumo_mcp/server.py` 或 `doc/API_CN.md` 为准。
 
 更多配置示例见 `mcp_config_examples.json`。
 
@@ -280,7 +296,7 @@ python src/server.py
 *   **强化学习任务**:
 
     > "列出所有内置的强化学习场景，然后选择一个简单的路口场景训练 5 个回合。"
-    > *(AI 将调用 `manage_rl_task("list_scenarios")` 和 `run_workflow("rl_train", {"scenario_name": "...", "episodes": 5})`)*
+    > *(AI 将调用 `manage_rl_task("list_scenarios")`、`manage_rl_task("validate_env")`、`manage_rl_task("train")`，然后执行 `evaluate` 和 `compare`)*
 - **复杂综合场景示例 (推荐测试)**:
 
   > "使用工具中的sumo-mcp完成下面操作：生成一个4x4的网格路网，要求所有节点均为交叉路口，设置网格间距为100米（默认值）确保所有交叉口都配置交通信号灯，设置车辆总数为200辆，运行进行1000秒的交通仿真，启用车辆轨迹记录功能，提取所有车辆的速度数据计算整个仿真期间所有车辆的平均速度，结果精确到小数点后两位。"
@@ -311,34 +327,20 @@ python src/server.py
 ## 📂 项目结构
 
 ```text
-sumo-mcp/
+SUMO-MCP-Server/
 ├── doc/
 │   ├── API.md             # MCP 工具 API 参考（英文）
 │   ├── API_CN.md          # MCP 工具 API 参考（中文）
+│   ├── ARCHITECTURE.md    # 架构说明
+│   ├── RL.md              # RL 指南
 │   └── sumo-mcp.jpg       # 项目图片
 ├── src/
-│   ├── server.py           # MCP 服务器入口 (FastMCP 实现，聚合接口)
-│   ├── utils/              # 通用工具
-│   │   ├── connection.py   # TraCI 连接管理器
-│   │   ├── output.py       # 输出处理工具
-│   │   ├── sumo.py         # SUMO 配置工具
-│   │   ├── timeout.py      # 超时管理工具
-│   │   └── traci.py        # TraCI 封装工具
-│   ├── mcp_tools/          # 核心工具模块
-│   │   ├── analysis.py     # 分析工具
-│   │   ├── network.py      # 网络工具
-│   │   ├── route.py        # 路径工具
-│   │   ├── signal.py       # 信号工具
-│   │   ├── simulation.py   # 仿真控制工具
-│   │   ├── vehicle.py      # 车辆工具
-│   │   └── rl.py           # 强化学习工具
-│   ├── resources/          # 资源文件
-│   └── workflows/          # 自动化工作流
-│       ├── sim_gen.py      # 仿真生成工作流
-│       ├── signal_opt.py   # 信号优化工作流
-│       └── rl_train.py     # RL 训练工作流
+│   ├── server.py           # v0.1 兼容入口 shim
+│   └── sumo_mcp/           # v0.2 package: server/catalog/jobs/sessions/rl/resources
+├── skills/                 # SUMO-MCP skills 源和安装脚本
 ├── pyproject.toml          # 项目配置与依赖管理
 ├── requirements.lock       # 锁定依赖版本
+├── CHANGELOG.md            # 变更日志
 ├── README.md               # 项目文档（英文）
 └── README_CN.md            # 项目文档（中文）
 ```
