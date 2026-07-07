@@ -285,11 +285,18 @@ class JobManager:
             return None
 
     @staticmethod
-    def _kill_manifest_process(manifest: Dict[str, Any]) -> None:
+    def _kill_manifest_process(manifest: Dict[str, Any], *, verify_identity: bool = False) -> bool:
         pid = JobManager._coerce_pid(manifest.get("pid"))
         pgid = JobManager._coerce_pid(manifest.get("pgid"))
-        if pid is not None and is_process_alive(pid):
-            kill_process_tree(pid, pgid)
+        if pid is None or not is_process_alive(pid):
+            return False
+        # Re-verify identity immediately before the kill to close the TOCTOU window:
+        # a historic PID may have exited and been reused between the caller's check
+        # and this kill, so killing without re-checking risks hitting an unrelated process.
+        if verify_identity and not JobManager._manifest_command_matches_process(manifest):
+            return False
+        kill_process_tree(pid, pgid)
+        return True
 
     @staticmethod
     def _read_process_argv(pid: int) -> Optional[List[str]]:
@@ -355,7 +362,14 @@ class JobManager:
 
     @staticmethod
     def _normalize_command_line(value: str) -> str:
-        return " ".join(value.split())
+        # The OS command line (e.g. Windows Get-CimInstance CommandLine) quotes tokens
+        # that contain spaces, while our manifest argv is joined with plain spaces and
+        # carries no quotes. Strip surrounding quote characters so the two representations
+        # collapse to the same normalized string; otherwise a legitimate job installed
+        # under a path with spaces (e.g. "C:\\Program Files\\Python\\python.exe") would
+        # fail identity verification and be wrongly marked stale.
+        cleaned = value.replace('"', " ").replace("'", " ")
+        return " ".join(cleaned.split())
 
     @staticmethod
     def _manifest_command_matches_process(manifest: Dict[str, Any]) -> bool:
@@ -448,7 +462,15 @@ class JobManager:
             }
             _atomic_write_json(job_dir / _MANIFEST, manifest)
             return manifest
-        self._kill_manifest_process(manifest)
+        if not self._kill_manifest_process(manifest, verify_identity=True):
+            # The process either exited on its own or its identity no longer matches
+            # (PID reuse) between verification above and this kill. Do not claim a kill.
+            return self._mark_stale_manual_review(
+                job_dir,
+                manifest,
+                "Historic job process could not be killed: it exited or its PID identity "
+                "changed before cancellation. Inspect the process manually.",
+            )
         manifest["status"] = "cancelled"
         manifest["finished_at"] = _now()
         manifest["error"] = {

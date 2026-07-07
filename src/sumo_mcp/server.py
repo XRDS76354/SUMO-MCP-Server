@@ -1,4 +1,5 @@
 import logging
+import math
 import subprocess
 import sys
 import time
@@ -975,6 +976,8 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             value = float(raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"timeout_s must be a number, got {raw!r}") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"timeout_s must be a finite number, got {raw!r}")
         if value < 0:
             raise ValueError(f"timeout_s must be >= 0, got {value!r}")
         return value
@@ -1597,6 +1600,9 @@ def _run_cli_tool(tool: str, kind: str, name: str, args: Optional[List[str]],
             timeout_value = float(timeout_s)
         except (TypeError, ValueError):
             return make_error(tool, f"Error: timeout_s must be a number, got {timeout_s!r}",
+                              code=ErrorCode.INVALID_ARGUMENT, action=name)
+        if not math.isfinite(timeout_value):
+            return make_error(tool, f"Error: timeout_s must be a finite number, got {timeout_s!r}",
                               code=ErrorCode.INVALID_ARGUMENT, action=name)
         if timeout_value < 0:
             return make_error(tool, "Error: timeout_s must be >= 0",

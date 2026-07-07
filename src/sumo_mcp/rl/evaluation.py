@@ -19,7 +19,19 @@ def _greedy_action(q_tables: Dict[str, Any], ts_id: str, state: Any) -> int:
     values = table.get(state_to_key(state)) if hasattr(table, "get") else None
     if not values:
         return 0
-    return int(max(range(len(values)), key=lambda idx: values[idx]))
+
+    def _score(idx: int) -> float:
+        # Values loaded with decode_keys=False are raw JSON: numbers, or the
+        # "Infinity"/"-Infinity"/"NaN" string tokens written for non-finite Q-values.
+        # Coerce to float so argmax never mixes str and float (which raises TypeError).
+        try:
+            score = float(values[idx])
+        except (TypeError, ValueError):
+            return float("-inf")
+        # Treat NaN as the worst option so it is never greedily selected.
+        return float("-inf") if score != score else score
+
+    return int(max(range(len(values)), key=_score))
 
 
 def _make_env(config: Dict[str, Any], run_dir: str, *, single_agent: bool = False) -> Any:

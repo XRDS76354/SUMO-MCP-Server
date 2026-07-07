@@ -6,7 +6,7 @@ import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from sumo_mcp.models import ErrorCode
 
@@ -92,18 +92,35 @@ def key_to_state(key: str) -> Any:
     return _denormalize_state(payload.get("state"))
 
 
-def _json_number(value: Any) -> float:
+def _encode_q_value(value: Any) -> Any:
+    """Return a strictly-JSON-safe representation of a Q-value.
+
+    Non-finite floats (a diverged Q-table produces inf/nan) have no valid JSON
+    literal; the default ``json.dumps`` would emit bare ``Infinity``/``NaN`` tokens
+    that no strict/external parser can read. Encode them as strings that ``float()``
+    parses back losslessly so the checkpoint stays valid JSON and round-trips.
+    """
     value = _normalize_scalar(value)
+    number = float(value)
+    if math.isfinite(number):
+        return number
+    if math.isnan(number):
+        return "NaN"
+    return "Infinity" if number > 0 else "-Infinity"
+
+
+def _decode_q_value(value: Any) -> float:
+    # float() accepts "Infinity"/"-Infinity"/"NaN" as well as numeric inputs.
     return float(value)
 
 
-def _serialize_q_tables(q_tables: Mapping[str, Any]) -> Dict[str, Dict[str, list[float]]]:
-    payload: Dict[str, Dict[str, list[float]]] = {}
+def _serialize_q_tables(q_tables: Mapping[str, Any]) -> Dict[str, Dict[str, List[Any]]]:
+    payload: Dict[str, Dict[str, List[Any]]] = {}
     for ts_id, table in q_tables.items():
         if not isinstance(table, Mapping):
             continue
         payload[str(ts_id)] = {
-            state_to_key(state): [_json_number(v) for v in values]
+            state_to_key(state): [_encode_q_value(v) for v in values]
             for state, values in table.items()
         }
     return payload
@@ -130,7 +147,10 @@ def save_q_checkpoint(
         "q_tables": _serialize_q_tables(q_tables),
     }
     tmp = checkpoint.with_suffix(checkpoint.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    # allow_nan=False is a hard backstop: _encode_q_value already stringifies non-finite
+    # values, so any bare inf/nan reaching here is a bug we want to surface, not silently
+    # write invalid JSON.
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     os.replace(tmp, checkpoint)
     return str(checkpoint)
 
@@ -164,7 +184,9 @@ def load_q_tables(path: str, *, decode_keys: bool = False) -> Dict[str, Any]:
     for ts_id, table in q_tables.items():
         if not isinstance(table, dict):
             continue
-        decoded[str(ts_id)] = {key_to_state(key): [float(v) for v in values] for key, values in table.items()}
+        decoded[str(ts_id)] = {
+            key_to_state(key): [_decode_q_value(v) for v in values] for key, values in table.items()
+        }
     return decoded
 
 

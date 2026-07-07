@@ -99,6 +99,11 @@ class SessionManager:
         self._sessions: Dict[str, _Session] = {}
         self._lock = threading.RLock()
         self._counter = 0
+        # Labels reserved by an in-flight open() whose SUMO launch/connect is still
+        # running outside the lock. They count against MAX_SESSIONS and the label
+        # namespace so concurrent opens neither exceed the limit nor collide, without
+        # holding the global lock across the blocking Popen + TraCI connect.
+        self._pending: set[str] = set()
 
     # -- helpers ---------------------------------------------------------
 
@@ -189,6 +194,9 @@ class SessionManager:
             "got an unexpected",
             "multiple values",
             "invalid label",
+            "version mismatch",
+            "version does not match",
+            "incompatible version",
         )
         return not any(marker in text for marker in permanent_markers)
 
@@ -220,18 +228,24 @@ class SessionManager:
                 "Set SUMO_MCP_ALLOW_GUI=1 in the server environment to allow them."
             )
 
+        # Phase 1: reserve a label + capacity slot under the lock only. The blocking
+        # SUMO launch and TraCI connect happen in phase 2 WITHOUT the lock, so a slow or
+        # hung open() no longer stalls step/call/close/list on other sessions.
         with self._lock:
             self._reap_idle()
             if label is None:
                 label = self._next_label()
-            if label in self._sessions:
+            if label in self._sessions or label in self._pending:
                 raise ValueError(f"Session label {label!r} already in use.")
-            if len(self._sessions) >= self.MAX_SESSIONS:
+            if len(self._sessions) + len(self._pending) >= self.MAX_SESSIONS:
                 raise RuntimeError(
                     f"Session limit reached ({self.MAX_SESSIONS}). "
                     "Close an existing session first."
                 )
+            self._pending.add(label)
 
+        # Phase 2: launch + connect outside the lock.
+        try:
             binary = find_sumo_binary("sumo-gui" if gui else "sumo")
             if not binary:
                 raise FileNotFoundError(
@@ -297,14 +311,20 @@ class SessionManager:
                 if process is not None:
                     self._terminate_process(process)
                 raise
+
             info = SessionInfo(
                 label=label, config_file=config_file, gui=gui,
                 created_at=_now(), last_used_at=_now(),
                 sim_time=0.0, status="active",
             )
             assert process is not None
-            self._sessions[label] = _Session(info, connection, process)
+            # Phase 3: register under the lock.
+            with self._lock:
+                self._sessions[label] = _Session(info, connection, process)
             return info
+        finally:
+            with self._lock:
+                self._pending.discard(label)
 
     def step(self, label: Optional[str] = None, steps: int = 1) -> Dict[str, Any]:
         if steps < 1:

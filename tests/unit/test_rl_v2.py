@@ -15,7 +15,7 @@ import sumo_mcp.rl.sb3_entry as sb3_entry
 import sumo_mcp.rl.train_entry as train_entry
 import sumo_mcp.server as srv
 from sumo_mcp.models import ErrorCode
-from sumo_mcp.rl.checkpoints import save_q_checkpoint, state_to_key
+from sumo_mcp.rl.checkpoints import load_q_tables, save_q_checkpoint, state_to_key
 from sumo_mcp.rl.runs import create_run, latest_checkpoint, list_runs, load_config, load_run, update_run
 
 
@@ -216,13 +216,16 @@ def test_manage_rl_task_train_bad_timeout_does_not_create_run(
     monkeypatch.setattr(srv, "validate_rl_environment", lambda **kwargs: {
         "ok": True, "summary": "passed", "checks": [], "failed_checks": [],
     })
-    out_dir = tmp_path / "runs"
-    env = srv.manage_rl_task("train", {
-        "net_file": net, "route_file": route, "output_dir": str(out_dir), "timeout_s": "1h",
-    })
-    assert env["ok"] is False
-    assert env["error"]["code"] == ErrorCode.INVALID_ARGUMENT
-    assert not out_dir.exists()
+    # FIX #1: NaN/Inf must be rejected too — otherwise `value < 0` passes them
+    # through and the job never times out (hangs forever).
+    for bad in ("1h", "nan", "inf", "-inf", "Infinity"):
+        out_dir = tmp_path / f"runs_{bad}"
+        env = srv.manage_rl_task("train", {
+            "net_file": net, "route_file": route, "output_dir": str(out_dir), "timeout_s": bad,
+        })
+        assert env["ok"] is False, bad
+        assert env["error"]["code"] == ErrorCode.INVALID_ARGUMENT, bad
+        assert not out_dir.exists(), bad
 
 
 def test_manage_rl_task_status_stop_and_list_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -703,3 +706,30 @@ def test_manage_rl_task_evaluate_and_compare(monkeypatch: pytest.MonkeyPatch, tm
     assert env["ok"] is True and env["metrics"]["mean_total_reward"] == 1.0
     env = srv.manage_rl_task("compare", {"run_dir": run["run_dir"]})
     assert env["ok"] is True and env["metrics"]["mean_reward_delta"] == 1.0
+
+
+def test_checkpoint_non_finite_qvalues_roundtrip(tmp_path: Path) -> None:
+    # FIX #6: a diverged Q-table can contain inf/nan. These have no valid JSON
+    # literal; the checkpoint must stay strictly parseable and round-trip.
+    ckpt = tmp_path / "checkpoints" / "q_table_ep1.json"
+    save_q_checkpoint(
+        str(ckpt),
+        algorithm="ql",
+        requested_algorithm="ql",
+        episode=1,
+        q_tables={"tls0": {("s0",): [float("inf"), float("-inf"), float("nan"), 1.5]}},
+    )
+    # Strict JSON: no bare Infinity/NaN tokens (parse_constant would fire on them).
+
+    def _reject(_const: str) -> None:
+        raise AssertionError("checkpoint contains a non-standard JSON constant")
+
+    parsed = json.loads(ckpt.read_text(encoding="utf-8"), parse_constant=_reject)
+    assert parsed["format"]
+
+    decoded = load_q_tables(str(ckpt), decode_keys=True)
+    values = decoded["tls0"][("s0",)]
+    assert values[0] == float("inf")
+    assert values[1] == float("-inf")
+    assert values[2] != values[2]  # NaN
+    assert values[3] == 1.5

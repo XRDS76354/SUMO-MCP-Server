@@ -1,6 +1,7 @@
 """Unit tests for the multi-session TraCI manager (fake traci, no SUMO)."""
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
@@ -279,3 +280,19 @@ def test_close_dead_connection_tolerated(fake_traci: _FakeTraci) -> None:
     assert "dying" in fake_traci.deregistered
     manager.open("a.sumocfg", label="dying")
     assert manager.get("dying") is not None
+
+
+def test_open_version_mismatch_fails_fast(fake_traci: _FakeTraci) -> None:
+    # FIX #4: a version-mismatch is permanent; open() must fail fast instead of
+    # spinning retries for the whole timeout. With a large timeout_s the call
+    # still returns near-instantly because the error is classified permanent.
+    fake_traci.permanent_error = RuntimeError(
+        "FatalTraCIError: TraCI server and client version mismatch"
+    )
+    manager = _mgr()
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match="Failed to start session"):
+        manager.open("a.sumocfg", timeout_s=30)
+    assert time.monotonic() - start < 5.0
+    assert manager.list_sessions() == []
+    assert fake_traci.processes[-1].waited is True

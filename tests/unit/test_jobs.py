@@ -389,3 +389,80 @@ def test_historic_dead_running_job_becomes_failed(_jobs_dir: Path) -> None:
     assert status is not None
     assert status["status"] == "failed"
     assert "no longer alive" in status["error"]["message"]
+
+
+def test_windows_quoted_command_line_still_matches(monkeypatch: pytest.MonkeyPatch, _jobs_dir: Path) -> None:
+    # FIX #2: On Windows the OS CommandLine quotes tokens containing spaces
+    # (e.g. "C:\\Program Files\\Python\\python.exe"), while our manifest argv is
+    # joined with plain spaces. Normalization must strip quotes so a legitimate
+    # job installed under a spaced path is NOT wrongly marked stale.
+    job_dir = _jobs_dir / "quoted"
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({
+        "job_id": "quoted",
+        "label": "old",
+        "status": "running",
+        "request": {},
+        "pid": 4242,
+        "pgid": None,
+        "command": ["C:\\Program Files\\Python\\python.exe", "-m", "sumo_mcp.rl.train_entry", "C:\\my run"],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "started_at": "2026-01-01T00:00:01+00:00",
+        "finished_at": None,
+    }), encoding="utf-8")
+    killed: list[tuple[int, int | None]] = []
+    monkeypatch.setattr(jm.sys, "platform", "win32")
+    monkeypatch.setattr(jm, "is_process_alive", lambda pid: True)
+    monkeypatch.setattr(JobManager, "_read_process_argv", staticmethod(lambda pid: None))
+    monkeypatch.setattr(
+        JobManager,
+        "_read_process_command",
+        staticmethod(
+            lambda pid: '"C:\\Program Files\\Python\\python.exe" -m sumo_mcp.rl.train_entry "C:\\my run"'
+        ),
+    )
+    monkeypatch.setattr(jm, "kill_process_tree", lambda pid, pgid: killed.append((pid, pgid)))
+
+    cancelled = JobManager().cancel("quoted")
+    assert cancelled is not None and cancelled["status"] == "cancelled"
+    assert killed == [(4242, None)]
+
+
+def test_historic_cancel_reverifies_identity_before_kill(monkeypatch: pytest.MonkeyPatch, _jobs_dir: Path) -> None:
+    # FIX #3 (TOCTOU): identity passes during the initial check, but the PID is
+    # reused (identity no longer matches) by the time we are about to kill. The
+    # kill must be skipped and the job marked stale, never killing the reused PID.
+    job_dir = _jobs_dir / "toctou"
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({
+        "job_id": "toctou",
+        "label": "old",
+        "status": "running",
+        "request": {},
+        "pid": 5555,
+        "pgid": None,
+        "command": ["/python", "-m", "sumo_mcp.rl.train_entry", "/run"],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "started_at": "2026-01-01T00:00:01+00:00",
+        "finished_at": None,
+    }), encoding="utf-8")
+    killed: list[tuple[int, int | None]] = []
+    monkeypatch.setattr(jm, "is_process_alive", lambda pid: True)
+    monkeypatch.setattr(JobManager, "_read_process_argv", staticmethod(lambda pid: None))
+
+    # First identity read (in _cancel_historic) matches; second read (inside
+    # _kill_manifest_process re-verification) reflects a reused PID and differs.
+    reads = iter([
+        "/python -m sumo_mcp.rl.train_entry /run",
+        "/usr/bin/some-unrelated-process --serve",
+    ])
+    monkeypatch.setattr(
+        JobManager,
+        "_read_process_command",
+        staticmethod(lambda pid: next(reads, "/usr/bin/some-unrelated-process --serve")),
+    )
+    monkeypatch.setattr(jm, "kill_process_tree", lambda pid, pgid: killed.append((pid, pgid)))
+
+    cancelled = JobManager().cancel("toctou")
+    assert cancelled is not None and cancelled["status"] == "stale_manual_review"
+    assert killed == []
