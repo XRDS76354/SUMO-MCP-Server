@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -186,10 +188,12 @@ class JobManager:
 
     def _record_process(self, job: _Job, process_info: Dict[str, Any]) -> None:
         with self._lock:
+            command = process_info.get("command")
             job.manifest.update({
                 "pid": process_info.get("pid"),
                 "pgid": process_info.get("pgid"),
-                "command": process_info.get("command"),
+                "command": command,
+                "command_line": " ".join(str(part) for part in command) if isinstance(command, list) else None,
             })
             _atomic_write_json(job.job_dir / _MANIFEST, job.manifest)
 
@@ -288,11 +292,121 @@ class JobManager:
             kill_process_tree(pid, pgid)
 
     @staticmethod
+    def _read_process_argv(pid: int) -> Optional[List[str]]:
+        if sys.platform == "win32":
+            return None
+        cmdline = Path(f"/proc/{pid}/cmdline")
+        if not cmdline.is_file():
+            return None
+        try:
+            raw = cmdline.read_bytes()
+        except OSError:
+            return None
+        parts = [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+        return parts or None
+
+    @staticmethod
+    def _read_windows_process_command(pid: int) -> Optional[str]:
+        commands = [
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").CommandLine",
+            ],
+            ["wmic", "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/value"],
+        ]
+        for command in commands:
+            try:
+                proc = subprocess.run(
+                    command,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+                )
+            except (OSError, subprocess.SubprocessError):
+                continue
+            stdout = proc.stdout.strip()
+            if not stdout:
+                continue
+            for line in stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith("CommandLine="):
+                    line = line.split("=", 1)[1].strip()
+                if line:
+                    return line
+        return None
+
+    @staticmethod
+    def _read_process_command(pid: int) -> Optional[str]:
+        try:
+            if sys.platform == "win32":
+                return JobManager._read_windows_process_command(pid)
+
+            proc = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+            )
+            command = proc.stdout.strip()
+            return command or None
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    @staticmethod
+    def _normalize_command_line(value: str) -> str:
+        return " ".join(value.split())
+
+    @staticmethod
+    def _manifest_command_matches_process(manifest: Dict[str, Any]) -> bool:
+        pid = JobManager._coerce_pid(manifest.get("pid"))
+        command = manifest.get("command")
+        if pid is None or not isinstance(command, list) or not command:
+            return False
+        expected_argv = [str(part) for part in command]
+        actual_argv = JobManager._read_process_argv(pid)
+        if actual_argv is not None:
+            return actual_argv == expected_argv
+        actual = JobManager._read_process_command(pid)
+        if not actual:
+            return False
+
+        expected = JobManager._normalize_command_line(" ".join(expected_argv))
+        actual_norm = JobManager._normalize_command_line(actual)
+        if sys.platform == "win32":
+            expected = expected.lower()
+            actual_norm = actual_norm.lower()
+        if expected and expected == actual_norm:
+            return True
+
+        return False
+
+    @staticmethod
+    def _mark_stale_manual_review(job_dir: Path, manifest: Dict[str, Any], reason: str) -> Dict[str, Any]:
+        manifest["status"] = "stale_manual_review"
+        manifest["finished_at"] = manifest.get("finished_at") or _now()
+        manifest["error"] = {
+            "code": "EXECUTION_FAILED",
+            "message": reason,
+            "remediation": "The persisted PID could not be verified as the original SUMO-MCP job. "
+                           "Inspect the process manually before killing it.",
+        }
+        _atomic_write_json(job_dir / _MANIFEST, manifest)
+        return manifest
+
+    @staticmethod
     def _reconcile_manifest(job_dir: Path, manifest: Dict[str, Any]) -> None:
         if manifest.get("status") not in _ACTIVE:
             return
         pid = JobManager._coerce_pid(manifest.get("pid"))
         if pid is not None and is_process_alive(pid):
+            if not JobManager._manifest_command_matches_process(manifest):
+                JobManager._mark_stale_manual_review(
+                    job_dir,
+                    manifest,
+                    "Historic job process is alive, but its PID identity could not be verified.",
+                )
+                return
             if manifest.get("status") != "orphaned":
                 manifest["status"] = "orphaned"
                 manifest["error"] = {
@@ -316,6 +430,23 @@ class JobManager:
         if manifest is None:
             return None
         if manifest.get("status") in _TERMINAL:
+            return manifest
+        pid = self._coerce_pid(manifest.get("pid"))
+        if pid is not None and is_process_alive(pid):
+            if not self._manifest_command_matches_process(manifest):
+                return self._mark_stale_manual_review(
+                    job_dir,
+                    manifest,
+                    "Historic job process is alive, but its PID identity could not be verified.",
+                )
+        else:
+            manifest["status"] = "failed"
+            manifest["finished_at"] = manifest.get("finished_at") or _now()
+            manifest["error"] = {
+                "code": "EXECUTION_FAILED",
+                "message": "Historic job process is no longer alive.",
+            }
+            _atomic_write_json(job_dir / _MANIFEST, manifest)
             return manifest
         self._kill_manifest_process(manifest)
         manifest["status"] = "cancelled"

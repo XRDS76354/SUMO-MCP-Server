@@ -105,12 +105,13 @@ def list_runs(out_dir: str) -> List[Dict[str, Any]]:
     return sorted(runs, key=lambda r: str(r.get("created_at", "")), reverse=True)
 
 
-def latest_checkpoint(run_dir: str) -> Optional[str]:
+def latest_checkpoint(run_dir: str, *, suffixes: Optional[set[str]] = None) -> Optional[str]:
     checkpoints = Path(run_dir).expanduser().resolve() / "checkpoints"
     if not checkpoints.is_dir():
         return None
+    allowed_suffixes = {suffix.lower() for suffix in (suffixes or {".json", ".zip"})}
     candidates = sorted(
-        [p for p in checkpoints.iterdir() if p.is_file()],
+        [p for p in checkpoints.iterdir() if p.is_file() and p.suffix.lower() in allowed_suffixes],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )

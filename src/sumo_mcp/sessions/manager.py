@@ -3,7 +3,7 @@
 v0.1 exposes exactly one global TraCI connection (utils/connection.py); that
 path is untouched for backward compatibility. This manager adds *named*
 sessions on top, using TraCI's native multi-connection support
-(``traci.start(..., label=...)`` + ``traci.getConnection(label)``), so an
+(``SUMO --remote-port`` + ``traci.connect(..., label=...)``), so an
 agent can run e.g. a baseline and an optimized scenario side by side.
 
 Domain access goes through an explicit method whitelist (``ALLOWED_CALLS``):
@@ -16,11 +16,14 @@ Known beta0.2 defects fixed here: session cap (was unbounded), start timeout
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, FrozenSet, List, Optional
 
+from sumo_mcp.execution.runner import kill_process_tree, process_group_id, validate_argv_args
 from sumo_mcp.utils.sumo import find_sumo_binary
 from sumo_mcp.utils.traci import ensure_traci_start_stdout_suppressed
 
@@ -82,9 +85,10 @@ class SessionInfo:
 
 
 class _Session:
-    def __init__(self, info: SessionInfo, connection: Any) -> None:
+    def __init__(self, info: SessionInfo, connection: Any, process: subprocess.Popen[str]) -> None:
         self.info = info
         self.connection = connection
+        self.process = process
 
 
 class SessionManager:
@@ -103,6 +107,11 @@ class SessionManager:
         ensure_traci_start_stdout_suppressed()
         import traci
         return traci
+
+    def _free_port(self) -> int:
+        from sumolib.miscutils import getFreeSocketPort
+
+        return int(getFreeSocketPort())
 
     def _next_label(self) -> str:
         self._counter += 1
@@ -146,7 +155,53 @@ class SessionManager:
         try:
             session.connection.close()
         except Exception:
-            pass  # already dead — that's fine, we're removing it anyway
+            try:
+                self._deregister_label(self._traci(), label)
+            except Exception:
+                pass
+        self._terminate_process(session.process)
+
+    @staticmethod
+    def _deregister_label(traci: Any, label: str) -> None:
+        try:
+            traci.switch(label)
+        except Exception:
+            return
+        try:
+            traci.close(False)
+        except TypeError:
+            try:
+                traci.close()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    @staticmethod
+    def _is_transient_connect_error(exc: Exception) -> bool:
+        if isinstance(exc, (TypeError, ValueError, AttributeError)):
+            return False
+        text = str(exc).lower()
+        permanent_markers = (
+            "already active",
+            "already exists",
+            "unexpected keyword",
+            "got an unexpected",
+            "multiple values",
+            "invalid label",
+        )
+        return not any(marker in text for marker in permanent_markers)
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen[str]) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            kill_process_tree(process.pid, process_group_id(process.pid))
+        except Exception:
+            kill_process_tree(process.pid, process_group_id(process.pid))
 
     # -- public API -------------------------------------------------------
 
@@ -185,39 +240,70 @@ class SessionManager:
 
             cmd = [binary, "-c", config_file, "--no-step-log", "true", "--start"]
             if extra_args:
-                cmd.extend(str(a) for a in extra_args)
+                safe_extra_args = [str(a) for a in extra_args]
+                rejection = validate_argv_args(safe_extra_args)
+                if rejection:
+                    raise ValueError(rejection)
+                cmd.extend(safe_extra_args)
 
             traci = self._traci()
-
-            # traci.start can hang forever on a broken config/port; run it in a
-            # worker thread with a join timeout (beta0.2 dropped this — defect).
-            start_error: List[BaseException] = []
-
-            def _start() -> None:
-                try:
-                    import subprocess
-                    traci.start(cmd, label=label, stdout=subprocess.DEVNULL)
-                except BaseException as exc:  # noqa: BLE001 - reported to caller
-                    start_error.append(exc)
-
-            starter = threading.Thread(target=_start, daemon=True)
-            starter.start()
-            starter.join(timeout_s)
-            if starter.is_alive():
-                raise TimeoutError(
-                    f"traci.start did not complete within {timeout_s:.0f}s "
-                    f"for config {config_file!r}."
+            port = self._free_port()
+            command = [*cmd, "--remote-port", str(port)]
+            popen_kwargs: Dict[str, Any] = {}
+            if os.name != "nt":
+                popen_kwargs["start_new_session"] = True
+            process: Optional[subprocess.Popen[str]] = None
+            connection: Any = None
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    **popen_kwargs,
                 )
-            if start_error:
-                raise RuntimeError(f"Failed to start session: {start_error[0]}")
-
-            connection = traci.getConnection(label)
+                deadline = time.monotonic() + timeout_s
+                last_error: Optional[Exception] = None
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        raise RuntimeError(f"SUMO exited before TraCI connected, returncode={process.returncode}")
+                    try:
+                        connection = traci.connect(
+                            port=port,
+                            numRetries=0,
+                            host="localhost",
+                            proc=process,
+                            waitBetweenRetries=0,
+                            label=label,
+                        )
+                        break
+                    except Exception as exc:
+                        if not self._is_transient_connect_error(exc):
+                            raise RuntimeError(f"Failed to start session: {type(exc).__name__}: {exc}") from exc
+                        last_error = exc
+                        time.sleep(0.05)
+                if connection is None:
+                    raise TimeoutError(
+                        f"traci.connect did not complete within {timeout_s:.0f}s "
+                        f"for config {config_file!r}: {last_error}"
+                    )
+            except Exception:
+                try:
+                    if connection is not None:
+                        connection.close()
+                except Exception:
+                    self._deregister_label(traci, label)
+                if process is not None:
+                    self._terminate_process(process)
+                raise
             info = SessionInfo(
                 label=label, config_file=config_file, gui=gui,
                 created_at=_now(), last_used_at=_now(),
                 sim_time=0.0, status="active",
             )
-            self._sessions[label] = _Session(info, connection)
+            assert process is not None
+            self._sessions[label] = _Session(info, connection, process)
             return info
 
     def step(self, label: Optional[str] = None, steps: int = 1) -> Dict[str, Any]:

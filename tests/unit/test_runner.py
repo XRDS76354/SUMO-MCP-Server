@@ -105,6 +105,11 @@ def test_gui_guard(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 # --- real subprocess behavior ----------------------------------------------------
 
 
+def test_timeout_none_keeps_safe_default() -> None:
+    assert runner_mod._effective_timeout(None) == runner_mod.DEFAULT_TIMEOUT_S
+    assert runner_mod._effective_timeout(runner_mod.NO_TIMEOUT_S) is None
+
+
 def test_successful_run_captures_output(fake_tool: Path) -> None:
     result = run_cli("tool", "fake_tool.py", [])
     assert result["ok"] is True

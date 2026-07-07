@@ -11,6 +11,7 @@ from typing import Any, Dict
 import pytest
 
 import sumo_mcp.execution.runner as runner_mod
+import sumo_mcp.jobs.manager as jm
 from sumo_mcp.catalog.registry import CommandSpec
 from sumo_mcp.jobs.manager import JobManager
 
@@ -208,8 +209,9 @@ def test_cli_job_cancel_kills_subprocess(monkeypatch: pytest.MonkeyPatch, tmp_pa
 def test_historic_running_job_reconciles_and_can_be_cancelled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _jobs_dir: Path
 ) -> None:
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
     proc = __import__("subprocess").Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
+        command,
         stdout=__import__("subprocess").DEVNULL,
         stderr=__import__("subprocess").DEVNULL,
     )
@@ -222,6 +224,7 @@ def test_historic_running_job_reconciles_and_can_be_cancelled(
         "request": {},
         "pid": proc.pid,
         "pgid": None,
+        "command": command,
         "created_at": "2026-01-01T00:00:00+00:00",
         "started_at": "2026-01-01T00:00:01+00:00",
         "finished_at": None,
@@ -234,6 +237,138 @@ def test_historic_running_job_reconciles_and_can_be_cancelled(
     assert cancelled is not None and cancelled["status"] == "cancelled"
     proc.wait(timeout=10)
     assert not runner_mod.is_process_alive(proc.pid)
+
+
+def test_historic_running_job_refuses_unverified_pid(tmp_path: Path, _jobs_dir: Path) -> None:
+    proc = __import__("subprocess").Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=__import__("subprocess").DEVNULL,
+        stderr=__import__("subprocess").DEVNULL,
+    )
+    try:
+        job_dir = _jobs_dir / "stale"
+        job_dir.mkdir(parents=True)
+        (job_dir / "manifest.json").write_text(json.dumps({
+            "job_id": "stale",
+            "label": "old",
+            "status": "running",
+            "request": {},
+            "pid": proc.pid,
+            "pgid": None,
+            "command": [sys.executable, "-c", "print('different job')"],
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "started_at": "2026-01-01T00:00:01+00:00",
+            "finished_at": None,
+        }), encoding="utf-8")
+
+        manager = JobManager()
+        status = manager.get_status("stale")
+        assert status is not None and status["status"] == "stale_manual_review"
+        cancelled = manager.cancel("stale")
+        assert cancelled is not None and cancelled["status"] == "stale_manual_review"
+        assert runner_mod.is_process_alive(proc.pid)
+    finally:
+        proc.kill()
+        try:
+            proc.wait(timeout=10)
+        except Exception:
+            pass
+
+
+def test_stale_historic_job_cancel_retries_identity_check(
+    tmp_path: Path, _jobs_dir: Path
+) -> None:
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    proc = __import__("subprocess").Popen(
+        command,
+        stdout=__import__("subprocess").DEVNULL,
+        stderr=__import__("subprocess").DEVNULL,
+    )
+    job_dir = _jobs_dir / "retry-stale"
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({
+        "job_id": "retry-stale",
+        "label": "old",
+        "status": "stale_manual_review",
+        "request": {},
+        "pid": proc.pid,
+        "pgid": None,
+        "command": command,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "started_at": "2026-01-01T00:00:01+00:00",
+        "finished_at": None,
+    }), encoding="utf-8")
+
+    cancelled = JobManager().cancel("retry-stale")
+    assert cancelled is not None and cancelled["status"] == "cancelled"
+    proc.wait(timeout=10)
+    assert not runner_mod.is_process_alive(proc.pid)
+
+
+def test_historic_identity_requires_exact_command_match(
+    monkeypatch: pytest.MonkeyPatch, _jobs_dir: Path
+) -> None:
+    job_dir = _jobs_dir / "substring"
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({
+        "job_id": "substring",
+        "label": "old",
+        "status": "running",
+        "request": {},
+        "pid": 12345,
+        "pgid": None,
+        "command": ["/python", "-m", "sumo_mcp.rl.train_entry", "/run"],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "started_at": "2026-01-01T00:00:01+00:00",
+        "finished_at": None,
+    }), encoding="utf-8")
+    killed: list[tuple[int, int | None]] = []
+    monkeypatch.setattr(jm, "is_process_alive", lambda pid: True)
+    monkeypatch.setattr(JobManager, "_read_process_argv", staticmethod(lambda pid: None))
+    monkeypatch.setattr(
+        JobManager,
+        "_read_process_command",
+        staticmethod(lambda pid: "bash -c '/python -m sumo_mcp.rl.train_entry /run; cleanup'"),
+    )
+    monkeypatch.setattr(jm, "kill_process_tree", lambda pid, pgid: killed.append((pid, pgid)))
+
+    cancelled = JobManager().cancel("substring")
+    assert cancelled is not None and cancelled["status"] == "stale_manual_review"
+    assert killed == []
+
+
+def test_windows_process_command_uses_powershell_cim(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        stdout = "python -m sumo_mcp.rl.train_entry C:\\run\n"
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return Result()
+
+    monkeypatch.setattr(jm.sys, "platform", "win32")
+    monkeypatch.setattr(jm.subprocess, "run", fake_run)
+    assert JobManager._read_process_command(42) == "python -m sumo_mcp.rl.train_entry C:\\run"
+    assert calls[0][0] == "powershell"
+
+
+def test_windows_process_command_falls_back_to_wmic(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        stdout = "CommandLine=python -m sumo_mcp.rl.train_entry C:\\run\n"
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command[0] == "powershell":
+            raise OSError("missing")
+        return Result()
+
+    monkeypatch.setattr(jm.sys, "platform", "win32")
+    monkeypatch.setattr(jm.subprocess, "run", fake_run)
+    assert JobManager._read_process_command(42) == "python -m sumo_mcp.rl.train_entry C:\\run"
+    assert [call[0] for call in calls] == ["powershell", "wmic"]
 
 
 def test_historic_dead_running_job_becomes_failed(_jobs_dir: Path) -> None:

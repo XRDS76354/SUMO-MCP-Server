@@ -29,6 +29,7 @@ class _FakeConnection:
     def __init__(self) -> None:
         self.calls: List[Any] = []
         self.closed = False
+        self.close_raises = False
         self.simulation = _FakeDomain(self.calls)
         self.vehicle = _FakeDomain(self.calls)
         self.trafficlight = _FakeDomain(self.calls)
@@ -38,31 +39,77 @@ class _FakeConnection:
         self.calls.append(("simulationStep", ()))
 
     def close(self) -> None:
+        if self.close_raises:
+            raise ConnectionError("already gone")
         self.closed = True
+
+
+class _FakeProcess:
+    _next_pid = 10000
+
+    def __init__(self, cmd: List[str], **kwargs: Any) -> None:
+        type(self)._next_pid += 1
+        self.pid = type(self)._next_pid
+        self.cmd = cmd
+        self.kwargs = kwargs
+        self.returncode = None
+        self.waited = False
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.waited = True
+        self.returncode = 0
+        return 0
 
 
 class _FakeTraci:
     def __init__(self) -> None:
         self.connections: Dict[str, _FakeConnection] = {}
         self.started: List[Dict[str, Any]] = []
+        self.processes: List[_FakeProcess] = []
         self.hang = False
+        self.permanent_error: Exception | None = None
+        self.current_label: str | None = None
+        self.deregistered: List[str] = []
 
-    def start(self, cmd: List[str], label: str = "default", stdout: Any = None) -> None:
+    def connect(self, port: int, numRetries: int = 0, host: str = "localhost", proc: Any = None,
+                waitBetweenRetries: int = 0, label: str = "default", **kwargs: Any) -> _FakeConnection:
         if self.hang:
-            import time
-            time.sleep(30)
-        self.started.append({"cmd": cmd, "label": label})
-        self.connections[label] = _FakeConnection()
+            raise RuntimeError("not ready")
+        if self.permanent_error is not None:
+            raise self.permanent_error
+        conn = _FakeConnection()
+        self.started.append({"cmd": proc.cmd, "label": label, "port": port})
+        self.connections[label] = conn
+        return conn
 
-    def getConnection(self, label: str) -> _FakeConnection:
-        return self.connections[label]
+    def switch(self, label: str) -> None:
+        if label not in self.connections:
+            raise KeyError(label)
+        self.current_label = label
+
+    def close(self, wait: bool = True) -> None:
+        if self.current_label is not None:
+            self.deregistered.append(self.current_label)
+            self.connections.pop(self.current_label, None)
+            self.current_label = None
 
 
 @pytest.fixture()
 def fake_traci(monkeypatch: pytest.MonkeyPatch) -> _FakeTraci:
     fake = _FakeTraci()
     monkeypatch.setattr(SessionManager, "_traci", lambda self: fake)
+    monkeypatch.setattr(SessionManager, "_free_port", lambda self: 8813)
     monkeypatch.setattr(sm, "find_sumo_binary", lambda name: f"/fake/bin/{name}")
+
+    def fake_popen(cmd: List[str], **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(cmd, **kwargs)
+        fake.processes.append(proc)
+        return proc
+
+    monkeypatch.setattr(sm.subprocess, "Popen", fake_popen)
     monkeypatch.delenv("SUMO_MCP_ALLOW_GUI", raising=False)
     return fake
 
@@ -79,7 +126,9 @@ def test_open_auto_labels_and_command(fake_traci: _FakeTraci) -> None:
     assert info1.status == "active"
     assert fake_traci.started[0]["cmd"][:3] == ["/fake/bin/sumo", "-c", "a.sumocfg"]
     assert "--start" in fake_traci.started[0]["cmd"]
-    assert fake_traci.started[1]["cmd"][-2:] == ["--seed", "42"]
+    assert fake_traci.started[0]["cmd"][-2:] == ["--remote-port", "8813"]
+    assert "--seed" in fake_traci.started[1]["cmd"]
+    assert "42" in fake_traci.started[1]["cmd"]
 
 
 def test_open_duplicate_label_rejected(fake_traci: _FakeTraci) -> None:
@@ -112,6 +161,27 @@ def test_open_timeout_when_traci_hangs(fake_traci: _FakeTraci) -> None:
     manager = _mgr()
     with pytest.raises(TimeoutError, match="did not complete"):
         manager.open("a.sumocfg", timeout_s=0.5)
+    assert manager.list_sessions() == []
+    assert fake_traci.processes[-1].waited is True
+
+
+def test_open_rejects_remote_port_extra_arg(fake_traci: _FakeTraci) -> None:
+    with pytest.raises(ValueError, match="remote-port"):
+        _mgr().open("a.sumocfg", extra_args=["--remote-port", "9999"])
+    assert fake_traci.processes == []
+
+
+def test_open_rejects_python_script_extra_arg(fake_traci: _FakeTraci) -> None:
+    with pytest.raises(ValueError, match="python-script"):
+        _mgr().open("a.sumocfg", extra_args=["--python-script", "evil.py"])
+    assert fake_traci.processes == []
+
+
+def test_open_permanent_connect_error_fails_fast_and_cleans_process(fake_traci: _FakeTraci) -> None:
+    fake_traci.permanent_error = RuntimeError("Connection 'dup' is already active")
+    with pytest.raises(RuntimeError, match="already active"):
+        _mgr().open("a.sumocfg", label="dup", timeout_s=60)
+    assert fake_traci.processes[-1].waited is True
 
 
 def test_missing_sumo_binary(fake_traci: _FakeTraci, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,6 +250,7 @@ def test_close_and_list(fake_traci: _FakeTraci) -> None:
     result = manager.close("one")
     assert result == {"label": "one", "status": "closed"}
     assert fake_traci.connections["one"].closed is True
+    assert fake_traci.processes[0].waited is True
     assert {s["label"] for s in manager.list_sessions()} == {"two"}
     assert manager.get("one") is None
     assert manager.close_all() == 1
@@ -195,15 +266,16 @@ def test_idle_sessions_reaped(fake_traci: _FakeTraci) -> None:
 
     assert manager.list_sessions() == []  # reaped lazily
     assert fake_traci.connections["stale"].closed is True
+    assert fake_traci.processes[0].waited is True
 
 
 def test_close_dead_connection_tolerated(fake_traci: _FakeTraci) -> None:
     manager = _mgr()
     manager.open("a.sumocfg", label="dying")
 
-    def explode() -> None:
-        raise ConnectionError("already gone")
-
-    fake_traci.connections["dying"].close = explode  # type: ignore[method-assign]
+    fake_traci.connections["dying"].close_raises = True
     assert manager.close("dying")["status"] == "closed"
     assert manager.list_sessions() == []
+    assert "dying" in fake_traci.deregistered
+    manager.open("a.sumocfg", label="dying")
+    assert manager.get("dying") is not None

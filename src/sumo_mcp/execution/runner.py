@@ -26,6 +26,7 @@ from sumo_mcp.catalog.curated import GUI_COMMANDS
 from sumo_mcp.models import ErrorCode, artifact
 
 DEFAULT_TIMEOUT_S = 600.0
+NO_TIMEOUT_S = 0.0
 _TAIL_CHARS = 4000
 
 # Flags that must never come from an agent: --remote-port opens a TraCI socket
@@ -73,7 +74,7 @@ def _gui_allowed() -> bool:
     return os.environ.get("SUMO_MCP_ALLOW_GUI", "").lower() in ("1", "true", "yes")
 
 
-def _validate_args(args: List[str]) -> Optional[str]:
+def validate_argv_args(args: List[str]) -> Optional[str]:
     """Return a rejection message, or None if args are acceptable."""
     if not isinstance(args, list) or any(not isinstance(a, str) for a in args):
         return "args must be a list of strings (argv form, no shell parsing)"
@@ -85,6 +86,9 @@ def _validate_args(args: List[str]) -> Optional[str]:
                 "connections instead of raw --remote-port, and never --python-script"
             )
     return None
+
+
+_validate_args = validate_argv_args
 
 
 def _infer_artifacts(args: List[str], cwd: Optional[str],
@@ -159,6 +163,12 @@ def _kill_process(proc: subprocess.Popen[str]) -> None:
     kill_process_tree(proc.pid, process_group_id(proc.pid))
 
 
+def _effective_timeout(timeout_s: Optional[float]) -> Optional[float]:
+    if timeout_s == NO_TIMEOUT_S:
+        return None
+    return timeout_s if timeout_s is not None else DEFAULT_TIMEOUT_S
+
+
 def run_cli(
     kind: str,
     name: str,
@@ -213,7 +223,7 @@ def run_cli(
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8")
 
-    effective_timeout = timeout_s if timeout_s is not None else DEFAULT_TIMEOUT_S
+    effective_timeout = _effective_timeout(timeout_s)
     popen_kwargs: Dict[str, Any] = {}
     if sys.platform != "win32":
         popen_kwargs["start_new_session"] = True  # own process group for tree-kill
@@ -246,11 +256,10 @@ def run_cli(
     timed_out = False
     try:
         while True:
-            remaining = effective_timeout - (time.monotonic() - started)
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
                 _kill_process(proc)
-            if remaining <= 0:
+            if effective_timeout is not None and effective_timeout - (time.monotonic() - started) <= 0:
                 timed_out = True
                 _kill_process(proc)
             try:
@@ -287,9 +296,10 @@ def run_cli(
         "error": None,
     }
     if timed_out:
+        timeout_display = effective_timeout if effective_timeout is not None else DEFAULT_TIMEOUT_S
         result["error"] = {
             "code": ErrorCode.TIMEOUT,
-            "message": f"{name} timed out after {effective_timeout:.0f}s and was killed.",
+            "message": f"{name} timed out after {timeout_display:.0f}s and was killed.",
             "remediation": "Increase timeout_s, or run it as a background job "
                            "(background=true) and poll manage_sumo_jobs.",
         }
@@ -332,7 +342,7 @@ def run_command(
     env.setdefault("PYTHONIOENCODING", "utf-8")
     package_root = str(Path(__file__).resolve().parents[2])
     env["PYTHONPATH"] = package_root + os.pathsep + env.get("PYTHONPATH", "")
-    effective_timeout = timeout_s if timeout_s is not None else DEFAULT_TIMEOUT_S
+    effective_timeout = _effective_timeout(timeout_s)
     popen_kwargs: Dict[str, Any] = {}
     if sys.platform != "win32":
         popen_kwargs["start_new_session"] = True
@@ -357,11 +367,10 @@ def run_command(
     timed_out = False
     try:
         while True:
-            remaining = effective_timeout - (time.monotonic() - started)
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
                 _kill_process(proc)
-            if remaining <= 0:
+            if effective_timeout is not None and effective_timeout - (time.monotonic() - started) <= 0:
                 timed_out = True
                 _kill_process(proc)
             try:
@@ -397,9 +406,10 @@ def run_command(
         "error": None,
     }
     if timed_out:
+        timeout_display = effective_timeout if effective_timeout is not None else DEFAULT_TIMEOUT_S
         result["error"] = {
             "code": ErrorCode.TIMEOUT,
-            "message": f"{name} timed out after {effective_timeout:.0f}s and was killed.",
+            "message": f"{name} timed out after {timeout_display:.0f}s and was killed.",
         }
     elif cancelled:
         result["error"] = {

@@ -30,6 +30,20 @@ def check_envelope(env: Dict[str, Any]) -> None:
         assert "error" in env and env["error"].get("code"), f"failed envelope lacks error.code: {env}"
 
 
+def test_background_cli_uses_explicit_no_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: Dict[str, Any] = {}
+
+    def fake_start_cli_job(kind, name, args, **kwargs):
+        captured.update(kind=kind, name=name, args=args, **kwargs)
+        return {"job_id": "j1", "job_dir": "jobs/j1", "label": name, "status": "pending"}
+
+    monkeypatch.setattr(srv.job_manager, "start_cli_job", fake_start_cli_job)
+    env = srv.run_sumo_binary("sumo", background=True)
+    check_envelope(env)
+    assert env["ok"] is True
+    assert captured["timeout_s"] == srv.NO_TIMEOUT_S
+
+
 # --- manage_network -------------------------------------------------------
 
 

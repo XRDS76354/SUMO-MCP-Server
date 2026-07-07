@@ -134,7 +134,7 @@ def make_error(
 #   "Error: ..." / "Error finding netconvert: ..." / "Analysis error: ..."
 #   "Netconvert failed." / "randomTrips failed." / "tlsCoordinator failed."
 #   "duarouter execution error: ..." / "Simulation error: ..."
-#   "Training failed: ..." / "Step 1 Failed: ..." / "Step 4 Failed: Could not..."
+#   "Training failed: ..." / "Training cancelled: ..." / "Step 1 Failed: ..."
 #   "Baseline Simulation Failed: ..." / "Optimized Simulation Failed: ..."
 #   "Algorithm ppo not yet implemented in this tool wrapper."
 #   "Operation 'x' timed out after Ns" / "Fatal: ..."
@@ -143,6 +143,7 @@ _ERROR_PREFIX = re.compile(
     r"error\b"                       # "Error: ...", "Error finding X: ..."
     r"|fatal\b"
     r"|training failed"
+    r"|training cancelled"
     r"|failed to\b"
     r"|algorithm .* not yet implemented"
     r"|step \d+ failed"              # workflow step failures
@@ -174,6 +175,12 @@ def _infer_error_code(text: str) -> str:
     return ErrorCode.EXECUTION_FAILED
 
 
+def is_legacy_failure_text(text: str) -> bool:
+    """Return True if a v0.1 human-readable result follows failure conventions."""
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    return bool(_ERROR_PREFIX.match(first_line))
+
+
 def legacy_result(
     tool: str,
     text: str,
@@ -190,7 +197,7 @@ def legacy_result(
     preserved verbatim in ``summary`` so nothing a v0.1 client relied on is lost.
     """
     first_line = text.strip().splitlines()[0] if text.strip() else ""
-    failed = bool(_ERROR_PREFIX.match(first_line))
+    failed = is_legacy_failure_text(text)
     if failed:
         return make_error(
             tool,

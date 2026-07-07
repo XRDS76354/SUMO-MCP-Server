@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Type
 
 from sumo_mcp.models import ErrorCode
 from sumo_mcp.rl.algorithms import SB3_ALGORITHMS
+from sumo_mcp.rl.metrics import copy_latest_metrics
 from sumo_mcp.rl.runs import latest_checkpoint, load_config, update_run
 from sumo_mcp.utils.sumo import find_sumo_home
 from sumo_mcp.utils.traci import ensure_traci_start_stdout_suppressed
@@ -34,27 +35,22 @@ def _make_env(config: Dict[str, Any], run_dir: Path) -> Any:
     ensure_traci_start_stdout_suppressed()
     from sumo_rl import SumoEnvironment
 
-    return SumoEnvironment(
-        net_file=str(config["net_file"]),
-        route_file=str(config["route_file"]),
-        out_csv_name=str(run_dir / "train_results"),
-        use_gui=False,
-        num_seconds=int(config.get("steps_per_episode", 1000)),
-        reward_fn=str(config.get("reward_type", "diff-waiting-time")),
-        delta_time=int(config.get("delta_time", 5)),
-        yellow_time=int(config.get("yellow_time", 2)),
-        single_agent=True,
-        sumo_warnings=False,
-    )
-
-
-def _copy_metrics(run_dir: Path) -> Optional[str]:
-    candidates = sorted(run_dir.glob("train_results*.csv"))
-    if not candidates:
-        return None
-    metrics_file = run_dir / "metrics.csv"
-    metrics_file.write_text(candidates[0].read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
-    return str(metrics_file)
+    kwargs: Dict[str, Any] = {
+        "net_file": str(config["net_file"]),
+        "route_file": str(config["route_file"]),
+        "out_csv_name": str(run_dir / "train_results"),
+        "use_gui": False,
+        "num_seconds": int(config.get("steps_per_episode", 1000)),
+        "reward_fn": str(config.get("reward_type", "diff-waiting-time")),
+        "delta_time": int(config.get("delta_time", 5)),
+        "yellow_time": int(config.get("yellow_time", 2)),
+        "single_agent": True,
+        "sumo_warnings": False,
+    }
+    seed = _seed(config)
+    if seed is not None:
+        kwargs["sumo_seed"] = seed
+    return SumoEnvironment(**kwargs)
 
 
 def _total_timesteps(config: Dict[str, Any]) -> int:
@@ -116,8 +112,8 @@ def main(argv: list[str] | None = None) -> int:
             env.save_csv(env.out_csv_name, env.episode)
         except Exception:
             pass
-        metrics_file = _copy_metrics(run_dir)
-        checkpoint = latest_checkpoint(str(run_dir)) or str(model_file)
+        metrics_file = copy_latest_metrics(run_dir)
+        checkpoint = latest_checkpoint(str(run_dir), suffixes={".zip"}) or str(model_file)
         summary = f"{algorithm.upper()} SB3 training finished: {timesteps} timesteps."
         update_run(str(run_dir), {
             "status": "succeeded",

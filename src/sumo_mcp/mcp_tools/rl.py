@@ -1,11 +1,12 @@
 import os
-import pickle
+import random
 import threading
 from contextlib import contextmanager
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Callable, Iterator, List, Optional, Tuple
 
+from sumo_mcp.rl.checkpoints import load_q_tables, save_q_checkpoint
 from sumo_mcp.utils.traci import ensure_traci_start_stdout_suppressed
 
 # NOTE:
@@ -152,6 +153,9 @@ def run_rl_training(
     reward_type: str = "diff-waiting-time",
     checkpoint_dir: Optional[str] = None,
     resume_checkpoint: Optional[str] = None,
+    delta_time: Optional[int] = None,
+    yellow_time: Optional[int] = None,
+    seed: Optional[int] = None,
 ) -> str:
     """
     Run a basic RL training session using Q-Learning (default) or other algorithms.
@@ -240,18 +244,45 @@ def run_rl_training(
             register_cancel_callback(_cancel)
 
             try:
+                seed_int: Optional[int] = None
+                if seed is not None:
+                    seed_int = int(seed)
+                    random.seed(seed_int)
+                    try:
+                        import numpy as np
+
+                        np.random.seed(seed_int)
+                    except Exception:
+                        pass
+
                 with _pushd(out_dir_abs):
-                    env = env_class(
-                        net_file=net_file,
-                        route_file=route_file,
-                        out_csv_name=os.path.join(out_dir_abs, "train_results"),
-                        use_gui=False,
-                        num_seconds=steps_per_episode,
-                        reward_fn=reward_type,
-                        single_agent=False,
-                        sumo_warnings=False,
-                        additional_sumo_cmd=additional_sumo_cmd,
-                    )
+                    env_kwargs: dict[str, Any] = {
+                        "net_file": net_file,
+                        "route_file": route_file,
+                        "out_csv_name": os.path.join(out_dir_abs, "train_results"),
+                        "use_gui": False,
+                        "num_seconds": steps_per_episode,
+                        "reward_fn": reward_type,
+                        "single_agent": False,
+                        "sumo_warnings": False,
+                        "additional_sumo_cmd": additional_sumo_cmd,
+                    }
+                    if delta_time is not None:
+                        env_kwargs["delta_time"] = int(delta_time)
+                    if yellow_time is not None:
+                        env_kwargs["yellow_time"] = int(yellow_time)
+                    if seed_int is not None:
+                        env_kwargs["sumo_seed"] = seed_int
+                    env = env_class(**env_kwargs)
+                    if seed_int is not None:
+                        for space_name in ("action_space", "observation_space"):
+                            space = getattr(env, space_name, None)
+                            seed_fn = getattr(space, "seed", None)
+                            if callable(seed_fn):
+                                try:
+                                    seed_fn(seed_int)
+                                except Exception:
+                                    pass
 
                 if not getattr(env, "ts_ids", None):
                     return (
@@ -272,12 +303,7 @@ def run_rl_training(
                 info_log: list[str] = []
                 loaded_q_tables: dict[str, object] = {}
                 if resume_checkpoint:
-                    with open(resume_checkpoint, "rb") as f:
-                        loaded = pickle.load(f)
-                    if isinstance(loaded, dict):
-                        raw_tables = loaded.get("q_tables", loaded)
-                        if isinstance(raw_tables, dict):
-                            loaded_q_tables = raw_tables
+                    loaded_q_tables = load_q_tables(resume_checkpoint, decode_keys=True)
 
                 checkpoint_path = None
                 if checkpoint_dir:
@@ -286,23 +312,35 @@ def run_rl_training(
                 def _save_checkpoint(ep_num: int) -> Optional[str]:
                     if not checkpoint_dir:
                         return None
-                    path = os.path.join(checkpoint_dir, f"q_table_ep{ep_num}.pkl")
-                    payload = {
-                        "algorithm": "ql",
-                        "requested_algorithm": algorithm,
-                        "episode": ep_num,
-                        "q_tables": {ts_id: getattr(agent, "q_table", {}) for ts_id, agent in agents.items()},
-                    }
-                    with open(path, "wb") as f:
-                        pickle.dump(payload, f)
-                    return path
+                    path = os.path.join(checkpoint_dir, f"q_table_ep{ep_num}.json")
+                    return save_q_checkpoint(
+                        path,
+                        algorithm="ql",
+                        requested_algorithm=algorithm,
+                        episode=ep_num,
+                        q_tables={ts_id: getattr(agent, "q_table", {}) for ts_id, agent in agents.items()},
+                        config={
+                            "net_file": net_file,
+                            "route_file": route_file,
+                            "episodes": episodes,
+                            "steps_per_episode": steps_per_episode,
+                            "reward_type": reward_type,
+                            "delta_time": delta_time,
+                            "yellow_time": yellow_time,
+                            "seed": seed,
+                        },
+                    )
 
                 for ep in range(1, episodes + 1):
                     if cancel_event.is_set():
                         return cancel_message
                     heartbeat()
                     with _pushd(out_dir_abs):
-                        reset_result = env.reset()
+                        reset_seed = seed_int + ep - 1 if seed_int is not None else None
+                        try:
+                            reset_result = env.reset(seed=reset_seed) if reset_seed is not None else env.reset()
+                        except TypeError:
+                            reset_result = env.reset()
 
                     if isinstance(reset_result, tuple) and len(reset_result) == 2:
                         obs = reset_result[0]
@@ -345,9 +383,9 @@ def run_rl_training(
                     ep_total_reward = 0.0
                     dones: dict[str, bool] = {"__all__": False}
                     decision_steps = 0
-                    delta_time = getattr(env, "delta_time", 1)
+                    env_delta_time = getattr(env, "delta_time", 1)
                     try:
-                        delta_time_int = int(delta_time)
+                        delta_time_int = int(env_delta_time)
                     except (TypeError, ValueError):
                         delta_time_int = 1
                     max_decisions = max(1, int(steps_per_episode / max(1, delta_time_int))) + 10

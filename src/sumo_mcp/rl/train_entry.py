@@ -8,17 +8,17 @@ from pathlib import Path
 from typing import Any, Dict
 
 from sumo_mcp.mcp_tools.rl import run_rl_training
+from sumo_mcp.models import is_legacy_failure_text
+from sumo_mcp.rl.metrics import copy_latest_metrics
 from sumo_mcp.rl.runs import latest_checkpoint, load_config, update_run
 from sumo_mcp.utils.sumo import find_sumo_home
 
 
-def _copy_metrics(run_dir: Path) -> str | None:
-    candidates = sorted(run_dir.glob("train_results*.csv"))
-    if not candidates:
+def _optional_int(config: Dict[str, Any], key: str) -> int | None:
+    raw = config.get(key)
+    if raw is None or raw == "":
         return None
-    metrics_file = run_dir / "metrics.csv"
-    metrics_file.write_text(candidates[0].read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
-    return str(metrics_file)
+    return int(raw)
 
 
 def _result(ok: bool, summary: str, **extra: Any) -> Dict[str, Any]:
@@ -53,10 +53,13 @@ def main(argv: list[str] | None = None) -> int:
             reward_type=str(config.get("reward_type", "diff-waiting-time")),
             checkpoint_dir=str(checkpoint_dir),
             resume_checkpoint=str(resume_checkpoint) if resume_checkpoint else None,
+            delta_time=_optional_int(config, "delta_time"),
+            yellow_time=_optional_int(config, "yellow_time"),
+            seed=_optional_int(config, "seed"),
         )
-        ok = not text.lstrip().lower().startswith(("error", "training failed", "algorithm "))
-        metrics_file = _copy_metrics(run_dir)
-        checkpoint = latest_checkpoint(str(run_dir))
+        ok = not is_legacy_failure_text(text)
+        metrics_file = copy_latest_metrics(run_dir)
+        checkpoint = latest_checkpoint(str(run_dir), suffixes={".json"})
         update_run(str(run_dir), {
             "status": "succeeded" if ok else "failed",
             "episodes_done": int(config.get("episodes", 1)) if ok else 0,

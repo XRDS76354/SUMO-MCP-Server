@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -21,7 +22,7 @@ from sumo_mcp.mcp_tools.vehicle import (
 from sumo_mcp.mcp_tools.rl import find_sumo_rl_scenario_files, list_rl_scenarios, run_rl_training
 from sumo_mcp.analysis import analyze_output
 from sumo_mcp.catalog import describe_command, list_commands
-from sumo_mcp.execution import run_cli
+from sumo_mcp.execution import NO_TIMEOUT_S, run_cli
 from sumo_mcp.jobs import job_manager
 from sumo_mcp.models import ErrorCode, artifact, legacy_result, make_error, make_result
 from sumo_mcp.resources.provider import (
@@ -33,6 +34,7 @@ from sumo_mcp.resources.provider import (
 )
 from sumo_mcp.rl import create_run, list_algorithms as list_rl_algorithms_v2, list_runs, load_run
 from sumo_mcp.rl.algorithms import training_backend
+from sumo_mcp.rl.checkpoints import CheckpointError, validate_checkpoint_path
 from sumo_mcp.rl.evaluation import compare_run, evaluate_run
 from sumo_mcp.rl.preflight import validate_rl_environment
 from sumo_mcp.rl.runs import latest_checkpoint, load_config, update_config, update_run
@@ -967,6 +969,16 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
 
+    def _timeout_param(default: float) -> float:
+        raw = params.get("timeout_s", params.get("timeout", default))
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"timeout_s must be a number, got {raw!r}") from exc
+        if value < 0:
+            raise ValueError(f"timeout_s must be >= 0, got {value!r}")
+        return value
+
     def _resolve_files() -> tuple[Optional[str], Optional[str], Optional[Envelope]]:
         scenario_name = params.get("scenario") or params.get("scenario_name")
         net_file = params.get("net_file")
@@ -988,6 +1000,89 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
         if backend == "sb3":
             return "sumo_mcp.rl.sb3_entry"
         return None
+
+    def _active_job(status: Optional[Dict[str, Any]]) -> bool:
+        return bool(status and status.get("status") in {"pending", "running", "cancelling", "orphaned"})
+
+    def _wait_job_terminal(job_id_value: str, timeout_s: float = 5.0) -> Optional[Dict[str, Any]]:
+        deadline = time.monotonic() + timeout_s
+        latest: Optional[Dict[str, Any]] = None
+        while time.monotonic() < deadline:
+            latest = job_manager.get_status(job_id_value)
+            if latest is None or latest.get("status") in {"succeeded", "failed", "cancelled", "stale_manual_review"}:
+                return latest
+            time.sleep(0.05)
+        return latest
+
+    def _validate_resume_checkpoint(
+        run_dir_value: str,
+        algorithm_value: str,
+        checkpoint_value: Optional[str],
+        run_manifest_value: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Envelope]:
+        if not checkpoint_value:
+            return make_error(tool, "Error: no checkpoint found for resume",
+                              code=ErrorCode.FILE_NOT_FOUND, action=action)
+        suffix = ".zip" if training_backend(algorithm_value) == "sb3" else ".json"
+        try:
+            resolved_checkpoint = validate_checkpoint_path(run_dir_value, checkpoint_value, suffix=suffix)
+        except CheckpointError as exc:
+            return make_error(tool, exc.message, code=exc.code, action=action)
+        if training_backend(algorithm_value) == "sb3":
+            manifest_paths = {
+                str(Path(value).expanduser().resolve())
+                for value in (
+                    (run_manifest_value or {}).get("latest_checkpoint"),
+                    (run_manifest_value or {}).get("final_model"),
+                )
+                if isinstance(value, str) and value
+            }
+            if str(Path(resolved_checkpoint).expanduser().resolve()) not in manifest_paths:
+                return make_error(
+                    tool,
+                    "Error: SB3 resume requires the server-recorded run manifest checkpoint.",
+                    code=ErrorCode.INVALID_ARGUMENT,
+                    action=action,
+                )
+            expected_name = f"{algorithm_value}_model.zip"
+            if Path(resolved_checkpoint).name != expected_name:
+                return make_error(
+                    tool,
+                    f"Error: SB3 checkpoint filename must be {expected_name!r}.",
+                    code=ErrorCode.INVALID_ARGUMENT,
+                    action=action,
+                )
+        return None
+
+    def _sync_run_with_job_terminal(
+        run_dir_value: Optional[str],
+        status: Optional[Dict[str, Any]],
+        result: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not run_dir_value or not status:
+            return
+        job_status = str(status.get("status", ""))
+        if job_status not in {"failed", "cancelled"}:
+            return
+        try:
+            current = load_run(run_dir_value)
+            if current.get("status") not in {"succeeded", "failed", "cancelled"}:
+                source = result or status
+                raw_error = source.get("error") if isinstance(source, dict) else None
+                error = raw_error if isinstance(raw_error, dict) else {}
+                message = str(error.get("message") or f"RL job {status.get('job_id', '')} {job_status}.").strip()
+                updates: Dict[str, Any] = {"status": job_status}
+                if job_status == "failed":
+                    updates["error"] = {
+                        "code": str(error.get("code", ErrorCode.EXECUTION_FAILED)),
+                        "message": message,
+                    }
+                    updates["training_summary"] = message
+                else:
+                    updates["training_summary"] = message or "Training cancelled."
+                update_run(run_dir_value, updates)
+        except Exception:
+            pass
 
     if action == "list_scenarios":
         scenarios = list_rl_scenarios()
@@ -1038,6 +1133,7 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             steps_per_episode = _int_param(steps_key, 1000)
             delta_time = _int_param("delta_time", 5)
             yellow_time = _int_param("yellow_time", 2)
+            timeout_s = _timeout_param(3600)
         except ValueError as exc:
             return _invalid(f"Error: {exc}")
         if episodes <= 0 or steps_per_episode <= 0:
@@ -1086,7 +1182,7 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             command,
             label=f"rl-train-{algorithm}",
             request={"kind": "rl_train", "run_dir": run_dir, **config},
-            timeout_s=float(params.get("timeout_s", params.get("timeout", 3600))),
+            timeout_s=timeout_s,
             expected_outputs=expected_outputs,
         )
         update_run(run_dir, {"status": "queued", "job_id": info["job_id"]})
@@ -1106,25 +1202,48 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
             return _invalid("Error: run_dir required for resume")
         run_dir = str(run_dir_raw)
         try:
+            run_manifest = load_run(run_dir)
             config = load_config(run_dir)
             extra_episodes = _int_param("episodes", int(config.get("episodes", 1)))
+            timeout_s = _timeout_param(3600)
         except (OSError, ValueError, KeyError) as exc:
             return make_error(tool, f"Error: cannot resume run: {exc}",
                               code=ErrorCode.INVALID_ARGUMENT, action=action)
-        config["episodes"] = extra_episodes
-        config["resume_checkpoint"] = latest_checkpoint(run_dir)
-        update_config(run_dir, config)
-        update_run(run_dir, {"status": "queued"})
         algorithm = str(config.get("algorithm", "ql")).lower()
+        old_job_id = run_manifest.get("job_id")
+        if old_job_id:
+            old_status = job_manager.get_status(str(old_job_id))
+            if _active_job(old_status):
+                assert old_status is not None
+                return make_error(
+                    tool,
+                    f"Error: run already has active job {old_job_id!r} ({old_status.get('status')}).",
+                    code=ErrorCode.INVALID_ARGUMENT,
+                    action=action,
+                    data={"run": run_manifest, "job": old_status},
+                )
         module = _training_module(algorithm)
         if module is None:
             return make_error(tool, f"Error: unsupported RL algorithm {algorithm!r}",
                               code=ErrorCode.INVALID_ARGUMENT, action=action)
+        suffix = ".zip" if training_backend(algorithm) == "sb3" else ".json"
+        if training_backend(algorithm) == "sb3":
+            manifest_checkpoint = run_manifest.get("latest_checkpoint") or run_manifest.get("final_model")
+            resume_checkpoint = str(manifest_checkpoint) if manifest_checkpoint else None
+        else:
+            resume_checkpoint = latest_checkpoint(run_dir, suffixes={suffix})
+        checkpoint_error = _validate_resume_checkpoint(run_dir, algorithm, resume_checkpoint, run_manifest)
+        if checkpoint_error:
+            return checkpoint_error
+        config["episodes"] = extra_episodes
+        config["resume_checkpoint"] = resume_checkpoint
+        update_config(run_dir, config)
+        update_run(run_dir, {"status": "queued"})
         command = [sys.executable, "-m", module, str(Path(run_dir).resolve())]
         info = job_manager.start_process_job(
             command, label=f"rl-resume-{config.get('algorithm', 'ql')}",
             request={"kind": "rl_resume", "run_dir": run_dir, **config},
-            timeout_s=float(params.get("timeout_s", params.get("timeout", 3600))),
+            timeout_s=timeout_s,
         )
         update_run(run_dir, {"job_id": info["job_id"]})
         return make_result(tool, f"Started RL resume job {info['job_id']}.", action=action,
@@ -1198,24 +1317,56 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
     elif action == "status":
         run_dir_raw = params.get("run_dir")
         job_id = params.get("job_id")
+        explicit_job_id = job_id is not None
         data: Dict[str, Any] = {}
+        warnings: List[str] = []
         if run_dir_raw:
             run_dir = str(run_dir_raw)
             try:
-                data["run"] = load_run(run_dir)
+                run_manifest = load_run(run_dir)
+                data["run"] = run_manifest
+                if not job_id and run_manifest.get("job_id"):
+                    job_id = run_manifest.get("job_id")
             except OSError as exc:
                 return make_error(tool, f"Error: run_dir not readable: {exc}",
                                   code=ErrorCode.FILE_NOT_FOUND, action=action)
         if job_id:
             status = job_manager.get_status(str(job_id))
             if status is None:
-                return make_error(tool, f"Error: no job with id {job_id!r}",
-                                  code=ErrorCode.JOB_NOT_FOUND, action=action)
-            data["job"] = status
+                if not explicit_job_id and run_dir_raw:
+                    warnings.append(f"Run manifest references missing job {job_id!r}; returning run status only.")
+                    job_id = None
+                else:
+                    return make_error(tool, f"Error: no job with id {job_id!r}",
+                                      code=ErrorCode.JOB_NOT_FOUND, action=action)
+            else:
+                job_result: Optional[Dict[str, Any]] = (
+                    job_manager.get_result(str(job_id))
+                    if status.get("status") in {"succeeded", "failed", "cancelled", "stale_manual_review"}
+                    else None
+                )
+                if isinstance(job_result, dict) and isinstance(job_result.get("error"), dict) and "error" not in status:
+                    status = {**status, "error": job_result["error"]}
+                data["job"] = status
+                if status.get("status") == "stale_manual_review":
+                    warnings.append("Historic job PID could not be verified; inspect the process manually.")
+                if run_dir_raw:
+                    _sync_run_with_job_terminal(
+                        str(run_dir_raw),
+                        status,
+                        job_result if isinstance(job_result, dict) else None,
+                    )
+                    try:
+                        data["run"] = load_run(str(run_dir_raw))
+                    except OSError:
+                        pass
         if not data:
             return _invalid("Error: status requires run_dir or job_id")
         summary = "RL status: " + ", ".join(f"{k}={v.get('status')}" for k, v in data.items())
-        return make_result(tool, summary, action=action, data=data, job_id=str(job_id) if job_id else None)
+        return make_result(
+            tool, summary, action=action, data=data,
+            warnings=warnings, job_id=str(job_id) if job_id else None,
+        )
 
     elif action == "stop":
         job_id = params.get("job_id")
@@ -1225,8 +1376,39 @@ def manage_rl_task(action: str, params: Optional[Dict[str, Any]] = None) -> Enve
         if cancelled is None:
             return make_error(tool, f"Error: no job with id {job_id!r}",
                               code=ErrorCode.JOB_NOT_FOUND, action=action)
-        return make_result(tool, f"RL job {job_id}: {cancelled['status']}", action=action,
-                           data={"job": cancelled}, job_id=str(job_id))
+        if cancelled.get("status") == "stale_manual_review":
+            raw_error = cancelled.get("error")
+            cancel_error: Dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+            return make_error(
+                tool,
+                str(cancel_error.get("message", "Historic job could not be safely cancelled.")),
+                code=str(cancel_error.get("code", ErrorCode.EXECUTION_FAILED)),
+                action=action,
+                remediation=str(cancel_error.get("remediation", "Inspect the process manually.")),
+                data={"job": cancelled},
+                job_id=str(job_id),
+            )
+        if cancelled.get("status") in {"succeeded", "failed", "cancelled", "stale_manual_review"}:
+            final_status: Dict[str, Any] = cancelled
+        else:
+            final_status = _wait_job_terminal(str(job_id)) or cancelled
+        raw_request = final_status.get("request")
+        request: Dict[str, Any] = raw_request if isinstance(raw_request, dict) else {}
+        run_dir_for_cancel = str(params.get("run_dir") or request.get("run_dir") or "")
+        final_result = job_manager.get_result(str(job_id))
+        _sync_run_with_job_terminal(
+            run_dir_for_cancel or None,
+            final_status,
+            final_result if isinstance(final_result, dict) else None,
+        )
+        data = {"job": final_status}
+        if run_dir_for_cancel:
+            try:
+                data["run"] = load_run(run_dir_for_cancel)
+            except OSError:
+                pass
+        return make_result(tool, f"RL job {job_id}: {final_status['status']}", action=action,
+                           data=data, job_id=str(job_id))
 
     elif action == "list_runs":
         out_dir = str(params.get("out_dir") or params.get("output_dir") or "rl_runs")
@@ -1409,8 +1591,22 @@ def _run_cli_tool(tool: str, kind: str, name: str, args: Optional[List[str]],
                   expected_outputs: Optional[List[Dict[str, str]]],
                   background: bool) -> Envelope:
     safe_args = [str(a) for a in (args or [])]
+    timeout_value: Optional[float] = None
+    if timeout_s is not None:
+        try:
+            timeout_value = float(timeout_s)
+        except (TypeError, ValueError):
+            return make_error(tool, f"Error: timeout_s must be a number, got {timeout_s!r}",
+                              code=ErrorCode.INVALID_ARGUMENT, action=name)
+        if timeout_value < 0:
+            return make_error(tool, "Error: timeout_s must be >= 0",
+                              code=ErrorCode.INVALID_ARGUMENT, action=name)
+    if not background and timeout_value == NO_TIMEOUT_S:
+        return make_error(tool, "Error: timeout_s=0 is reserved for background jobs",
+                          code=ErrorCode.INVALID_ARGUMENT, action=name)
     if background:
-        info = job_manager.start_cli_job(kind, name, safe_args, cwd=cwd, timeout_s=timeout_s,
+        job_timeout = NO_TIMEOUT_S if timeout_value is None else timeout_value
+        info = job_manager.start_cli_job(kind, name, safe_args, cwd=cwd, timeout_s=job_timeout,
                                          expected_outputs=expected_outputs, label=name)
         return make_result(
             tool, f"Started background job {info['job_id']} for {name}. "
@@ -1418,7 +1614,7 @@ def _run_cli_tool(tool: str, kind: str, name: str, args: Optional[List[str]],
             action=name, data=info, job_id=info["job_id"],
         )
 
-    result = run_cli(kind, name, safe_args, cwd=cwd, timeout_s=timeout_s,
+    result = run_cli(kind, name, safe_args, cwd=cwd, timeout_s=timeout_value,
                      expected_outputs=expected_outputs)
     if result["ok"]:
         summary = f"{name} completed in {result['duration_s']}s."
@@ -1561,6 +1757,18 @@ def manage_sumo_jobs(action: str, params: Optional[Dict[str, Any]] = None) -> En
             cancelled = job_manager.cancel(str(job_id))
             if cancelled is None:
                 return _not_found()
+            if cancelled.get("status") == "stale_manual_review":
+                raw_error = cancelled.get("error")
+                error: Dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+                return make_error(
+                    tool,
+                    str(error.get("message", "Historic job could not be safely cancelled.")),
+                    code=str(error.get("code", ErrorCode.EXECUTION_FAILED)),
+                    action=action,
+                    remediation=str(error.get("remediation", "Inspect the process manually.")),
+                    data=cancelled,
+                    job_id=str(job_id),
+                )
             return make_result(tool, f"Job {job_id}: {cancelled['status']}", action=action,
                                data=cancelled, job_id=str(job_id))
 
