@@ -1,3 +1,5 @@
+
+
 # SUMO-MCP: MCP Server for SUMO Traffic Simulation (LLM-Oriented)
 
 [中文文档](README_CN.md)
@@ -62,7 +64,7 @@ For detailed parameters and examples, see [API documentation](doc/API.md).
 
 - **OS**: Windows / Linux / macOS
 - **Python**: 3.10+
-- **SUMO**: [Eclipse SUMO](https://www.eclipse.org/sumo/) (`SUMO_HOME` recommended; SUMO binaries should be available in `PATH`)
+- **SUMO**: [Eclipse SUMO](https://www.eclipse.org/sumo/) 1.23+ (`SUMO_HOME` recommended; SUMO binaries should be available in `PATH`)
 
 ### Python Dependencies
 
